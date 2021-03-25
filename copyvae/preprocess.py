@@ -54,8 +54,15 @@ def load_copykat_data(file):
 
     return adata
 
+
+### example
+"""
+from scvi.data._anndata import setup_anndata
+
 data_path_scvi = 'scvi_data/'
 data_path_kat = 'copykat_data/txt_files/'
 adata = load_cortex_txt(data_path_scvi + 'expression_mRNA_17-Aug-2014.txt')
 # copyKAT DCIS1
-load_copykat_data(data_path_kat + 'GSM4476485_combined_UMIcount_CellTypes_DCIS1.txt')
+data = load_copykat_data(data_path_kat + 'GSM4476485_combined_UMIcount_CellTypes_DCIS1.txt')
+setup_anndata(data, labels_key="labels")
+"""
