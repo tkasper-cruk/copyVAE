@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-
 import numpy as np
 import tensorflow as tf
 import tensorflow.keras as keras
@@ -7,6 +6,7 @@ from tensorflow.keras.layers import *
 from tensorflow.keras.initializers import *
 from tensorflow.errors import *
 from copyvae.preprocess import *
+
 
 def validate_params(mu,theta):
     try:
@@ -93,6 +93,7 @@ class FullyConnLayer(keras.layers.Layer):
           x = self.act(x)
         return x
 
+
 class ScaleLayer(keras.layers.Layer):
     def __init__(self, *args, **kwargs):
         super(ScaleLayer, self).__init__(*args, **kwargs)
@@ -103,13 +104,13 @@ class ScaleLayer(keras.layers.Layer):
                                     initializer='ones',
                                     trainable=True)
         self.act = Activation('softplus')
-        
+
     def call(self, x):
         w = self.act(self.bias)
         x = tf.math.multiply(x, w)
-        #out = self.act(x)
-        print(x)
-        return x
+        out = self.act(x)
+        return out
+
 
 class Sampling(keras.layers.Layer):
 
@@ -120,21 +121,41 @@ class Sampling(keras.layers.Layer):
         return sample
 
 
-class GumbelSoftmaxSampling(layers.Layer):
+class GumbelSoftmaxSampling(keras.layers.Layer):
+    """ reparameterize categorical distribution """
 
     def call(self, inputs, temp=1.2, eps=1e-20):
-        pi = tf.stack(inputs,axis=1)
+
+        rho = tf.stack(inputs,axis=1)
+        pi = tf.transpose(rho, [0, 2, 1])
         u = tf.random.uniform(tf.shape(pi) ,minval=0, maxval=1)
         g = - tf.math.log(- tf.math.log(u + eps) + eps)
         z = (tf.math.log(pi + eps) + g) / temp
         y = tf.nn.softmax(z)
-        sample = tf.math.reduce_max(y, axis=1)
+
+        # one-hot map
+        y_hard = tf.cast(tf.equal(y,tf.math.reduce_max(y,1,keepdims=True)),tf.float32)
+        y = tf.stop_gradient(y_hard - y) + y
+
+        # constract copy number matrix
+        bat = tf.shape(pi)[0]
+        gene = tf.shape(pi)[1]
+        copy = tf.shape(pi)[2]
+        a = tf.reshape(tf.range(copy), (-1, copy))
+        b = tf.tile(a, (gene, 1))
+        c = tf.reshape(b,(-1,gene,copy))
+        cmat = tf.cast(tf.tile(c,(bat,1,1)),tf.float32)
+
+        # copy number map
+        y = tf.math.multiply(y,cmat)
+        sample = tf.math.reduce_sum(y,2)
+
         return sample
 
 
 class Encoder(keras.models.Model):
 
-    def __init__(self, latent_dim=32, intermediate_dim=64, name="encoder", **kwargs):
+    def __init__(self, latent_dim=10, intermediate_dim=128, name="encoder", **kwargs):
         super(Encoder, self).__init__(name=name, **kwargs)
         for i in range(3):
             setattr(self, "dense%i" % i, FullyConnLayer(intermediate_dim,
@@ -143,7 +164,7 @@ class Encoder(keras.models.Model):
                                                         keep_prob= .1))
         self.dense_mean = FullyConnLayer(latent_dim,
                                         activation=None,
-                                        n=False,
+                                        bn=False,
                                         keep_prob=None)
         self.dense_log_var = FullyConnLayer(latent_dim,
                                             activation= Activation('exponential'),
@@ -205,22 +226,23 @@ class VariationalAutoEncoder(keras.models.Model):
     def __init__(
         self,
         original_dim,
-        intermediate_dim=64,
+        intermediate_dim=128,
         latent_dim=10,
         name="VAE",
         **kwargs
     ):
         super(VariationalAutoEncoder, self).__init__(name=name, **kwargs)
         self.original_dim = original_dim
-        self.encoder = Encoder(latent_dim=latent_dim, intermediate_dim=intermediate_dim)
-        self.decoder = Decoder(original_dim, intermediate_dim=intermediate_dim)
+        self.encoder = Encoder(latent_dim, intermediate_dim)
+        self.decoder = Decoder(original_dim, intermediate_dim)
 
     def call(self, inputs):
         z_mean, z_log_var, z = self.encoder(inputs)
         reconstructed = self.decoder(z)
         # Add KL divergence regularization loss.
         kl_loss = 0.5 * tf.reduce_sum(
-                    tf.square(z_mean) + z_log_var - tf.math.log(1e-8 + z_log_var) - 1, 1)
+                    tf.square(z_mean) + z_log_var \
+                    - tf.math.log(1e-8 + z_log_var) - 1, 1)
         self.add_loss(kl_loss)
         return reconstructed
 
@@ -272,9 +294,7 @@ class DecoderCategorical(keras.models.Model):
         rho5 = self.rho5(x)
         rho6 = tf.ones_like(rho0) - (rho0 + rho1 + rho2 + rho3 + rho4 + rho5)
         copy = self.sampling([rho0, rho1, rho2, rho3, rho4, rho5, rho6])
-        #k_scale = self.k_layer(copy)
         mu = self.k_layer(copy)
-        #mu = tf.math.multiply(copy, k_scale)
         return [mu, theta, pi]
 
 
@@ -295,15 +315,9 @@ class CopyVAE(VariationalAutoEncoder):
 
 
 
-def train_vae(data, original_dim = None, batch_size = 128, epochs = 10):
-
-    if original_dim is None:
-        original_dim = data.shape[-1]
-
-    vae = VariationalAutoEncoder(original_dim, 128, 10)
+def train_vae(vae, data, batch_size = 128, epochs = 10):
 
     optimizer = tf.keras.optimizers.Adam(learning_rate=1e-3)
-
     loss_metric = tf.keras.metrics.Mean()
 
     train_dataset = tf.data.Dataset.from_tensor_slices(data)
@@ -319,7 +333,7 @@ def train_vae(data, original_dim = None, batch_size = 128, epochs = 10):
                 reconstructed = vae(x_batch_train)
                 # Compute reconstruction loss
                 recon = - zinb_pos(x_batch_train, reconstructed)
-                loss = recon + vae.losses#sum(vae.losses)
+                loss = recon + vae.losses   #sum(vae.losses)
 
             grads = tape.gradient(loss, vae.trainable_weights)
             optimizer.apply_gradients(zip(grads, vae.trainable_weights))
@@ -336,5 +350,7 @@ data_path_scvi = 'scvi_data/'
 data_path_kat = 'copykat_data/txt_files/'
 adata = load_cortex_txt(data_path_scvi + 'expression_mRNA_17-Aug-2014.txt')
 x_train = adata.X
-scvi_vae = train_vae(x_train, epochs = 400)
+#model = VariationalAutoEncoder(x_train.shape[-1], 128, 10)
+model = CopyVAE(x_train.shape[-1], 128, 10)
+copy_vae = train_vae(model, x_train, epochs = 400)
 """
