@@ -8,13 +8,21 @@ from tensorflow.errors import *
 from copyvae.preprocess import *
 
 
-def validate_params(mu,theta):
+def validate_params(mu, theta):
+
     try:
         tf.debugging.assert_non_negative(mu)
-        tf.debugging.assert_non_negative(theta)
     except InvalidArgumentError:
+        print("Invalid mu")
+        print(mu)
         return False
-    return True
+  try:
+      tf.debugging.assert_non_negative(theta)
+  except InvalidArgumentError:
+      print("Invalid theta")
+      print(theta)
+      return False
+  return True
 
 
 def zinb_pos(y_true, y_pred, eps=1e-8):
@@ -84,13 +92,13 @@ class FullyConnLayer(keras.layers.Layer):
           self.dropout = Dropout(self.drop)
 
     def call(self, inputs):
-        if self.drop:
-          inputs = self.dropout(inputs)
         x = self.fc(inputs)
         if self.bn_on:
           x = self.bn(x)
         if self.act:
           x = self.act(x)
+        if self.drop:
+          x = self.dropout(x)
         return x
 
 
@@ -155,66 +163,50 @@ class GumbelSoftmaxSampling(keras.layers.Layer):
 
 class Encoder(keras.models.Model):
 
-    def __init__(self, latent_dim=10, intermediate_dim=128, name="encoder", **kwargs):
+    def __init__(self, latent_dim=10, intermediate_dim=128, n_layer=1, name="encoder", **kwargs):
         super(Encoder, self).__init__(name=name, **kwargs)
-        for i in range(3):
+        self.eps = 1e-4
+        self.n_layer = n_layer
+
+        for i in range(self.n_layer):
             setattr(self, "dense%i" % i, FullyConnLayer(intermediate_dim,
                                                         activation= Activation('relu'),
                                                         bn=True,
                                                         keep_prob= .1))
-        self.dense_mean = FullyConnLayer(latent_dim,
-                                        activation=None,
-                                        bn=False,
-                                        keep_prob=None)
-        self.dense_log_var = FullyConnLayer(latent_dim,
-                                            activation= Activation('exponential'),
-                                            bn=False,
-                                            keep_prob=None)
+        self.dense_mean = Dense(latent_dim)
+        self.dense_log_var = Dense(latent_dim)
         self.sampling = Sampling()
 
     def call(self, inputs):
-        #x = tf.math.log(1 + inputs)
-        x = inputs
-        for i in range(3):
+        x = tf.math.log(1 + inputs)
+        #x = inputs
+        for i in range(self.n_layer):
             x = getattr(self, "dense%i" % i)(x)
         z_mean = self.dense_mean(x)
-        z_log_var = self.dense_log_var(x)
+        z_log_var = tf.math.exp(self.dense_log_var(x)) + self.eps
         z = self.sampling((z_mean, z_log_var))
         return z_mean, z_log_var, z
 
 
 class Decoder(keras.models.Model):
 
-    def __init__(self, original_dim, intermediate_dim, name="decoder", **kwargs):
+    def __init__(self, original_dim, intermediate_dim, n_layer=1, name="decoder", **kwargs):
         super(Decoder, self).__init__(name=name, **kwargs)
-        self.dense_proj1 = FullyConnLayer(intermediate_dim,
-                                        activation= Activation('relu'),
-                                        bn=True,
-                                        keep_prob=None)
-        for i in range(2):
+        self.n_layer = n_layer
+        for i in range(self.n_layer):
             setattr(self, "dense%i" % i, FullyConnLayer(intermediate_dim,
-                                                        activation= Activation('relu'),
-                                                        bn=True,
-                                                        keep_prob= .1))
-        self.px_rate = FullyConnLayer(original_dim,
-                                    activation= Activation('softmax'),
-                                    bn=False,
-                                    keep_prob=None)
-        self.px_r = FullyConnLayer(original_dim,
-                                activation= None,
-                                bn=False,
-                                keep_prob=None)
-        self.px_dropout = FullyConnLayer(original_dim,
-                                        activation= None,
-                                        bn=False,
-                                        keep_prob=None)
+                                                        activation= Activation('relu')))
+
+        self.px_rate = Dense(original_dim, activation='exponential')
+        self.px_r = Dense(original_dim)
+        self.px_dropout = Dense(original_dim)
 
 
     def call(self, inputs):
-        x = self.dense_proj1(inputs)
-        for i in range(2):
+        x = inputs
+        for i in range(self.n_layer):
             x = getattr(self, "dense%i" % i)(x)
-        px_rate = self.px_rate(x)
+        px_rate = tf.clip_by_value(self.px_rate(x), clip_value_min=0, clip_value_max=12)
         px_r = self.px_r(x)
         px_r = tf.math.exp(px_r)
         px_dropout = self.px_dropout(x)
@@ -249,26 +241,17 @@ class VariationalAutoEncoder(keras.models.Model):
 
 class DecoderCategorical(keras.models.Model):
 
-    def __init__(self, original_dim, intermediate_dim,
-                        name="decoder_categorical", **kwargs):
+    def __init__(self, original_dim, intermediate_dim, n_layer=1,
+                                name="decoder_categorical", **kwargs):
         super(DecoderCategorical, self).__init__(name=name, **kwargs)
-        self.dense_proj = FullyConnLayer(intermediate_dim,
-                                        activation= Activation('relu'),
-                                        bn=True,
-                                        keep_prob=None)
-        for i in range(2):
+
+        self.n_layer = n_layer
+        for i in range(self.n_layer):
             setattr(self, "dense%i" % i, FullyConnLayer(intermediate_dim,
                                                         activation= Activation('relu'),
-                                                        bn=True,
-                                                        keep_prob= .1))
-        self.px_r = FullyConnLayer(original_dim,
-                                activation= None,
-                                bn=False,
-                                keep_prob=None)
-        self.px_dropout = FullyConnLayer(original_dim,
-                                        activation= None,
-                                        bn=False,
-                                        keep_prob=None)
+                                                        ))
+        self.px_r = Dense(original_dim)
+        self.px_dropout = Dense(original_dim)
         for i in range(6):
             setattr(self, "rho%i" % i,FullyConnLayer(original_dim,
                                                     activation= Activation('softmax'),
@@ -278,8 +261,8 @@ class DecoderCategorical(keras.models.Model):
         self.sampling = GumbelSoftmaxSampling()
 
     def call(self, inputs):
-        x = self.dense_proj(inputs)
-        for i in range(2):
+        x = inputs
+        for i in range(self.n_layer):
             x = getattr(self, "dense%i" % i)(x)
         px_r = self.px_r(x)
         theta = tf.math.exp(px_r)
@@ -340,7 +323,8 @@ def train_vae(vae, data, batch_size = 128, epochs = 10):
             loss_metric(loss)
 
             if step % 100 == 0:
-                print("step %d: mean loss = %.4f" % (step, loss_metric.result()))
+                #print("step %d: mean loss = %.4f" % (step, loss_metric.result()))
+                print("step %d: mean loss = %s" % (step, "{:.2e}".format(loss_metric.result())))
     return vae
 
 
