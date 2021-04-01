@@ -14,13 +14,13 @@ def validate_params(mu, theta):
         tf.debugging.assert_non_negative(mu)
     except InvalidArgumentError:
         print("Invalid mu")
-        print(mu)
+        #print(mu)
         return False
   try:
       tf.debugging.assert_non_negative(theta)
   except InvalidArgumentError:
       print("Invalid theta")
-      print(theta)
+      #print(theta)
       return False
   return True
 
@@ -241,10 +241,13 @@ class VariationalAutoEncoder(keras.models.Model):
 
 class DecoderCategorical(keras.models.Model):
 
-    def __init__(self, original_dim, intermediate_dim, n_layer=1,
-                                name="decoder_categorical", **kwargs):
+    def __init__(self, original_dim, intermediate_dim,
+                                            max_cp=6,
+                                            n_layer=1,
+                                            name="decoder_categorical", **kwargs):
         super(DecoderCategorical, self).__init__(name=name, **kwargs)
 
+        self.max_cp = max_cp
         self.n_layer = n_layer
         for i in range(self.n_layer):
             setattr(self, "dense%i" % i, FullyConnLayer(intermediate_dim,
@@ -252,7 +255,7 @@ class DecoderCategorical(keras.models.Model):
                                                         ))
         self.px_r = Dense(original_dim)
         self.px_dropout = Dense(original_dim)
-        for i in range(6):
+        for i in range(self.max_cp):
             setattr(self, "rho%i" % i,FullyConnLayer(original_dim,
                                                     activation= Activation('softmax'),
                                                     bn=False,
@@ -267,16 +270,13 @@ class DecoderCategorical(keras.models.Model):
         px_r = self.px_r(x)
         theta = tf.math.exp(px_r)
         pi = self.px_dropout(x)
-        #for i in range(6):
-        #    r = getattr(self, "rho%i" % i)(x)
-        rho0 = self.rho0(x)
-        rho1 = self.rho1(x)
-        rho2 = self.rho2(x)
-        rho3 = self.rho3(x)
-        rho4 = self.rho4(x)
-        rho5 = self.rho5(x)
-        rho6 = tf.ones_like(rho0) - (rho0 + rho1 + rho2 + rho3 + rho4 + rho5)
-        copy = self.sampling([rho0, rho1, rho2, rho3, rho4, rho5, rho6])
+        rho_list = []
+        for i in range(self.max_cp):
+            rho = getattr(self, "rho%i" % i)(x)
+            rho_list.append(rho)
+        rho_lst = tf.ones_like(rho) - tf.math.reduce_sum(rho_list, axis=0)
+        rho_list.append(rho_lst)
+        copy = self.sampling(rho_list)
         mu = self.k_layer(copy)
         return [mu, theta, pi]
 
