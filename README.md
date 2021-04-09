@@ -1,3 +1,3 @@
 # copyVAE
 
-[cropped_cpvae.pdf](https://github.com/Lamicc/copyVAE/files/6284739/cropped_cpvae.pdf)
+![image](https://user-images.githubusercontent.com/4505079/114161673-a4597600-9928-11eb-8aad-035a0997ca02.png)
