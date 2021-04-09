@@ -102,20 +102,24 @@ class FullyConnLayer(keras.layers.Layer):
         return x
 
 
-class ScaleLayer(keras.layers.Layer):
+class ScaleLayer(layers.Layer):
     def __init__(self, *args, **kwargs):
         super(ScaleLayer, self).__init__(*args, **kwargs)
 
     def build(self, input_shape):
-        self.bias = self.add_weight('bias',
+        self.w = self.add_weight('weight',
                                     shape=input_shape[1:],
-                                    initializer='ones',
+                                    initializer='random_normal',
                                     trainable=True)
-        self.act = Activation('softplus')
+        self.b = self.add_weight('bias',
+                                    shape=input_shape[1:],
+                                    initializer='random_normal',
+                                    trainable=True)
+        self.act = Activation('sigmoid')
 
     def call(self, x):
-        w = self.act(self.bias)
-        x = tf.math.multiply(x, w)
+        w = self.w
+        x = tf.math.multiply(x, w) + self.b
         out = self.act(x)
         return out
 
@@ -142,7 +146,11 @@ class GumbelSoftmaxSampling(keras.layers.Layer):
         y = tf.nn.softmax(z)
 
         # one-hot map
-        y_hard = tf.cast(tf.equal(y,tf.math.reduce_max(y,1,keepdims=True)),tf.float32)
+        y_hard = tf.cast(
+                        tf.equal(y,
+                                tf.math.reduce_max(y,1,keepdims=True)
+                                ),
+                                tf.float32)
         y = tf.stop_gradient(y_hard - y) + y
 
         # constract copy number matrix
@@ -163,7 +171,8 @@ class GumbelSoftmaxSampling(keras.layers.Layer):
 
 class Encoder(keras.models.Model):
 
-    def __init__(self, latent_dim=10, intermediate_dim=128, n_layer=1, name="encoder", **kwargs):
+    def __init__(self, latent_dim=10, intermediate_dim=128, n_layer=2,
+                                                        name="encoder", **kwargs):
         super(Encoder, self).__init__(name=name, **kwargs)
         self.eps = 1e-4
         self.n_layer = n_layer
@@ -176,6 +185,7 @@ class Encoder(keras.models.Model):
         self.dense_mean = Dense(latent_dim)
         self.dense_log_var = Dense(latent_dim)
         self.sampling = Sampling()
+
 
     def call(self, inputs):
         x = tf.math.log(1 + inputs)
@@ -190,12 +200,14 @@ class Encoder(keras.models.Model):
 
 class Decoder(keras.models.Model):
 
-    def __init__(self, original_dim, intermediate_dim, n_layer=1, name="decoder", **kwargs):
+    def __init__(self, original_dim, intermediate_dim, n_layer=3, name="decoder",
+                                                                        **kwargs):
         super(Decoder, self).__init__(name=name, **kwargs)
         self.n_layer = n_layer
         for i in range(self.n_layer):
             setattr(self, "dense%i" % i, FullyConnLayer(intermediate_dim,
-                                                        activation= Activation('relu')))
+                                                        activation= Activation('relu'),
+                                                        bn=True))
 
         self.px_rate = Dense(original_dim, activation='exponential')
         self.px_r = Dense(original_dim)
@@ -206,7 +218,8 @@ class Decoder(keras.models.Model):
         x = inputs
         for i in range(self.n_layer):
             x = getattr(self, "dense%i" % i)(x)
-        px_rate = tf.clip_by_value(self.px_rate(x), clip_value_min=0, clip_value_max=12)
+        px_rate = tf.clip_by_value(self.px_rate(x), clip_value_min=0,
+                                                    clip_value_max=12)
         px_r = self.px_r(x)
         px_r = tf.math.exp(px_r)
         px_dropout = self.px_dropout(x)
@@ -228,13 +241,15 @@ class VariationalAutoEncoder(keras.models.Model):
         self.encoder = Encoder(latent_dim, intermediate_dim)
         self.decoder = Decoder(original_dim, intermediate_dim)
 
+
     def call(self, inputs):
         z_mean, z_log_var, z = self.encoder(inputs)
         reconstructed = self.decoder(z)
         # Add KL divergence regularization loss.
         kl_loss = 0.5 * tf.reduce_sum(
-                    tf.square(z_mean) + z_log_var \
-                    - tf.math.log(1e-8 + z_log_var) - 1, 1)
+                                        tf.square(z_mean) + z_log_var \
+                                        - tf.math.log(1e-8 + z_log_var) - 1,
+                                        1)
         self.add_loss(kl_loss)
         return reconstructed
 
@@ -243,7 +258,7 @@ class DecoderCategorical(keras.models.Model):
 
     def __init__(self, original_dim, intermediate_dim,
                                             max_cp=6,
-                                            n_layer=1,
+                                            n_layer=3,
                                             name="decoder_categorical", **kwargs):
         super(DecoderCategorical, self).__init__(name=name, **kwargs)
 
@@ -252,30 +267,30 @@ class DecoderCategorical(keras.models.Model):
         for i in range(self.n_layer):
             setattr(self, "dense%i" % i, FullyConnLayer(intermediate_dim,
                                                         activation= Activation('relu'),
-                                                        ))
+                                                        bn=True))
         self.px_r = Dense(original_dim)
         self.px_dropout = Dense(original_dim)
-        for i in range(self.max_cp):
-            setattr(self, "rho%i" % i,FullyConnLayer(original_dim,
-                                                    activation= Activation('softmax'),
-                                                    bn=False,
-                                                    keep_prob=None))
+        for i in range(self.max_cp + 1):
+            setattr(self, "rho%i" % i, Dense(original_dim))
         self.k_layer = ScaleLayer()
         self.sampling = GumbelSoftmaxSampling()
+
 
     def call(self, inputs):
         x = inputs
         for i in range(self.n_layer):
             x = getattr(self, "dense%i" % i)(x)
+
         px_r = self.px_r(x)
         theta = tf.math.exp(px_r)
         pi = self.px_dropout(x)
+
+        # categorical parameters
         rho_list = []
-        for i in range(self.max_cp):
+        for i in range(self.max_cp + 1):
             rho = getattr(self, "rho%i" % i)(x)
             rho_list.append(rho)
-        rho_lst = tf.ones_like(rho) - tf.math.reduce_sum(rho_list, axis=0)
-        rho_list.append(rho_lst)
+        rho_list = tf.nn.softmax(rho_list, axis=0)
         copy = self.sampling(rho_list)
         mu = self.k_layer(copy)
         return [mu, theta, pi]
