@@ -16,13 +16,13 @@ def validate_params(mu, theta):
         print("Invalid mu")
         #print(mu)
         return False
-  try:
-      tf.debugging.assert_non_negative(theta)
-  except InvalidArgumentError:
-      print("Invalid theta")
-      #print(theta)
-      return False
-  return True
+    try:
+        tf.debugging.assert_non_negative(theta)
+    except InvalidArgumentError:
+        print("Invalid theta")
+        #print(theta)
+        return False
+    return True
 
 
 def zinb_pos(y_true, y_pred, eps=1e-8):
@@ -102,7 +102,8 @@ class FullyConnLayer(keras.layers.Layer):
         return x
 
 
-class ScaleLayer(layers.Layer):
+class ScaleLayer(keras.layers.Layer):
+
     def __init__(self, *args, **kwargs):
         super(ScaleLayer, self).__init__(*args, **kwargs)
 
@@ -136,7 +137,7 @@ class Sampling(keras.layers.Layer):
 class GumbelSoftmaxSampling(keras.layers.Layer):
     """ reparameterize categorical distribution """
 
-    def call(self, inputs, temp=1.2, eps=1e-20):
+    def call(self, inputs, temp=0.1, eps=1e-20):
 
         rho = tf.stack(inputs,axis=1)
         pi = tf.transpose(rho, [0, 2, 1])
@@ -327,16 +328,18 @@ def train_vae(vae, data, batch_size = 128, epochs = 10):
 
         # Iterate over the batches of the dataset.
         for step, x_batch_train in enumerate(train_dataset):
-            with tf.GradientTape() as tape:
-                reconstructed = vae(x_batch_train)
-                # Compute reconstruction loss
-                recon = - zinb_pos(x_batch_train, reconstructed)
-                loss = recon + vae.losses   #sum(vae.losses)
+            try:
+                with tf.GradientTape() as tape:
+                    reconstructed = vae(x_batch_train)
+                    # Compute reconstruction loss
+                    recon = - zinb_pos(x_batch_train, reconstructed)
+                    loss = recon + vae.losses   #sum(vae.losses)
 
-            grads = tape.gradient(loss, vae.trainable_weights)
-            optimizer.apply_gradients(zip(grads, vae.trainable_weights))
-            loss_metric(loss)
-
+                grads = tape.gradient(loss, vae.trainable_weights)
+                optimizer.apply_gradients(zip(grads, vae.trainable_weights))
+                loss_metric(loss)
+            except:
+                return vae
             if step % 100 == 0:
                 #print("step %d: mean loss = %.4f" % (step, loss_metric.result()))
                 print("step %d: mean loss = %s" % (step, "{:.2e}".format(loss_metric.result())))
@@ -345,9 +348,10 @@ def train_vae(vae, data, batch_size = 128, epochs = 10):
 
 ### example
 """
-data_path_scvi = 'scvi_data/'
-data_path_kat = 'copykat_data/txt_files/'
-adata = load_cortex_txt(data_path_scvi + 'expression_mRNA_17-Aug-2014.txt')
+#data_path_scvi = '../data/scvi_data/'
+data_path_kat = '../data/copykat_data/txt_files/GSM4476485.txt'
+#adata = load_cortex_txt(data_path_scvi + 'expression_mRNA_17-Aug-2014.txt')
+adata = load_copykat_data(data_path_kat)
 x_train = adata.X
 #model = VariationalAutoEncoder(x_train.shape[-1], 128, 10)
 model = CopyVAE(x_train.shape[-1], 128, 10)
