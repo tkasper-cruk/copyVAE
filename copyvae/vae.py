@@ -146,10 +146,10 @@ class GumbelSoftmaxSampling(keras.layers.Layer):
         z = (tf.math.log(pi + eps) + g) / temp
         y = tf.nn.softmax(z)
 
-        # one-hot map
+        # one-hot map using argmax, but differentiate w.r.t. soft sample y
         y_hard = tf.cast(
                         tf.equal(y,
-                                tf.math.reduce_max(y,1,keepdims=True)
+                                tf.math.reduce_max(y, axis=-1, keepdims=True)
                                 ),
                                 tf.float32)
         y = tf.stop_gradient(y_hard - y) + y
@@ -165,7 +165,7 @@ class GumbelSoftmaxSampling(keras.layers.Layer):
 
         # copy number map
         y = tf.math.multiply(y,cmat)
-        sample = tf.math.reduce_sum(y,2)
+        sample = tf.math.reduce_sum(y, axis=-1)
 
         return sample
 
@@ -273,8 +273,8 @@ class DecoderCategorical(keras.models.Model):
         self.px_dropout = Dense(original_dim)
         for i in range(self.max_cp + 1):
             setattr(self, "rho%i" % i, Dense(original_dim))
-        self.k_layer = ScaleLayer()
         self.sampling = GumbelSoftmaxSampling()
+        self.k_layer = ScaleLayer()
 
 
     def call(self, inputs):
@@ -294,7 +294,7 @@ class DecoderCategorical(keras.models.Model):
         rho_list = tf.nn.softmax(rho_list, axis=0)
         copy = self.sampling(rho_list)
         mu = self.k_layer(copy)
-        return [mu, theta, pi]
+        return [mu, theta, pi], copy
 
 
 class CopyVAE(VariationalAutoEncoder):
@@ -312,6 +312,16 @@ class CopyVAE(VariationalAutoEncoder):
                          name)
         self.decoder = DecoderCategorical(original_dim, intermediate_dim)
 
+
+    def call(self, inputs):
+        z_mean, z_log_var, z = self.encoder(inputs)
+        reconstructed, copy = self.decoder(z)
+        kl_loss = 0.5 * tf.reduce_sum(
+                                        tf.square(z_mean) + z_log_var \
+                                        - tf.math.log(1e-8 + z_log_var) - 1,
+                                        1)
+        self.add_loss(kl_loss)
+        return reconstructed
 
 
 def train_vae(vae, data, batch_size = 128, epochs = 10):
@@ -353,7 +363,11 @@ data_path_kat = '../data/copykat_data/txt_files/GSM4476485.txt'
 #adata = load_cortex_txt(data_path_scvi + 'expression_mRNA_17-Aug-2014.txt')
 adata = load_copykat_data(data_path_kat)
 x_train = adata.X
+
 #model = VariationalAutoEncoder(x_train.shape[-1], 128, 10)
 model = CopyVAE(x_train.shape[-1], 128, 10)
 copy_vae = train_vae(model, x_train, epochs = 400)
+
+z_mean, _, z = copy_vae.encoder.predict(adata.X)
+reconstruction, copy = copy_vae.decoder(z)
 """
