@@ -138,13 +138,17 @@ class GumbelSoftmaxSampling(keras.layers.Layer):
     """ reparameterize categorical distribution """
 
     def call(self, inputs, temp=0.1, eps=1e-20):
-
+        
+        # reshape the dimensions (batch x gene x copies)
         rho = tf.stack(inputs,axis=1)
         pi = tf.transpose(rho, [0, 2, 1])
+
+        # sample from Gumbel(0, 1)
         u = tf.random.uniform(tf.shape(pi) ,minval=0, maxval=1)
+        # Gumbel-Softmax
         g = - tf.math.log(- tf.math.log(u + eps) + eps)
         z = (tf.math.log(pi + eps) + g) / temp
-        y = tf.nn.softmax(z)
+        y = tf.nn.softmax(z, axis=-1)
 
         # one-hot map using argmax, but differentiate w.r.t. soft sample y
         y_hard = tf.cast(
