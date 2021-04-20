@@ -6,7 +6,8 @@ from tensorflow.keras.layers import *
 from tensorflow.keras.initializers import *
 from tensorflow.errors import *
 from copyvae.preprocess import *
-
+from scipy.stats import poisson
+import tensorflow_probability as tfp
 
 def validate_params(mu, theta):
 
@@ -71,6 +72,19 @@ def zinb_pos(y_true, y_pred, eps=1e-8):
     res = mul_case_zero + mul_case_non_zero
 
     return tf.math.reduce_sum(res, axis=-1)
+
+
+def poisson_prior(batch_dim, genes_dim, max_cp=6, lam=2):
+
+    poi_prob = poisson.pmf(np.arange(max_cp+1), lam)
+    cat_prob = poi_prob / np.sum(poi_prob)
+    a = tf.expand_dims(cat_prob,axis=0)
+    b = tf.expand_dims(a, axis=0)
+    c = tf.repeat(b, repeats=genes_dim, axis=1)
+    d = tf.cast(tf.repeat(c, repeats=batch_dim, axis=0), tf.float32)
+    cat_dis = tfp.distributions.Categorical(probs=d)
+
+    return cat_dis
 
 
 class FullyConnLayer(keras.layers.Layer):
@@ -138,7 +152,7 @@ class GumbelSoftmaxSampling(keras.layers.Layer):
     """ reparameterize categorical distribution """
 
     def call(self, inputs, temp=0.1, eps=1e-20):
-        
+
         # reshape the dimensions (batch x gene x copies)
         rho = tf.stack(inputs,axis=1)
         pi = tf.transpose(rho, [0, 2, 1])
@@ -262,13 +276,15 @@ class VariationalAutoEncoder(keras.models.Model):
 class DecoderCategorical(keras.models.Model):
 
     def __init__(self, original_dim, intermediate_dim,
+                                            bin_size=25,
                                             max_cp=6,
-                                            n_layer=3,
+                                            n_layer=2,
                                             name="decoder_categorical", **kwargs):
         super(DecoderCategorical, self).__init__(name=name, **kwargs)
 
         self.max_cp = max_cp
         self.n_layer = n_layer
+        self.bin_size = bin_size
         for i in range(self.n_layer):
             setattr(self, "dense%i" % i, FullyConnLayer(intermediate_dim,
                                                         activation= Activation('relu'),
@@ -276,7 +292,8 @@ class DecoderCategorical(keras.models.Model):
         self.px_r = Dense(original_dim)
         self.px_dropout = Dense(original_dim)
         for i in range(self.max_cp + 1):
-            setattr(self, "rho%i" % i, Dense(original_dim))
+            #setattr(self, "rho%i" % i, Dense(original_dim))
+            setattr(self, "rho%i" % i, Dense(original_dim // bin_size)) # 461
         self.sampling = GumbelSoftmaxSampling()
         self.k_layer = ScaleLayer()
 
@@ -296,9 +313,15 @@ class DecoderCategorical(keras.models.Model):
             rho = getattr(self, "rho%i" % i)(x)
             rho_list.append(rho)
         rho_list = tf.nn.softmax(rho_list, axis=0)
-        copy = self.sampling(rho_list)
-        mu = self.k_layer(copy)
-        return [mu, theta, pi], copy
+        copy, cat_prob = self.sampling(rho_list)
+        ######### copy: batch x bins
+        gene_cn = tf.repeat(copy, repeats=self.bin_size, axis=1)
+        ######### gene_cn: batch x genes
+
+        #mu = self.k_layer(copy)
+        #return [mu, theta, pi], copy, cat_prob
+        mu = self.k_layer(gene_cn)
+        return [mu, theta, pi], gene_cn, cat_prob
 
 
 class CopyVAE(VariationalAutoEncoder):
@@ -318,13 +341,25 @@ class CopyVAE(VariationalAutoEncoder):
 
 
     def call(self, inputs):
+
         z_mean, z_log_var, z = self.encoder(inputs)
-        reconstructed, copy = self.decoder(z)
+        reconstructed, copy, rho = self.decoder(z)
+        #### latent KL
         kl_loss = 0.5 * tf.reduce_sum(
                                         tf.square(z_mean) + z_log_var \
                                         - tf.math.log(1e-8 + z_log_var) - 1,
                                         1)
         self.add_loss(kl_loss)
+        #### copy number KL
+        cn_dis = tfp.distributions.Categorical(probs=rho)
+        cn_prior = poisson_prior(rho.shape[0], rho.shape[1])
+        kl_copy = 0.5 * tf.reduce_sum(
+                                        tfp.distributions.kl_divergence(
+                                                                        cn_dis,
+                                                                        cn_prior),
+                                        1)
+        self.add_loss(kl_copy)
+
         return reconstructed
 
 
@@ -368,10 +403,12 @@ data_path_kat = '../data/copykat_data/txt_files/GSM4476485.txt'
 adata = load_copykat_data(data_path_kat)
 x_train = adata.X
 
-#model = VariationalAutoEncoder(x_train.shape[-1], 128, 10)
-model = CopyVAE(x_train.shape[-1], 128, 10)
-copy_vae = train_vae(model, x_train, epochs = 400)
+for d in ['/device:GPU:6', '/device:GPU:7']:
+    with tf.device(d):
 
-z_mean, _, z = copy_vae.encoder.predict(adata.X)
-reconstruction, copy = copy_vae.decoder(z)
+        #model = VariationalAutoEncoder(x_train.shape[-1], 128, 10)
+        model = CopyVAE(x_train.shape[-1], 128, 10)
+        copy_vae = train_vae(model, x_train, epochs = 400)
+        z_mean, _, z = copy_vae.encoder.predict(adata.X)
+        reconstruction, copy, _ = copy_vae.decoder(z)
 """
