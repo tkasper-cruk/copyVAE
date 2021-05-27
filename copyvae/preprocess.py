@@ -55,6 +55,18 @@ def load_copykat_data(file):
     return adata
 
 
+def load_data(file):
+
+    X = pd.read_csv(file, sep='\t', low_memory=False, index_col=0)
+    clusters = np.asarray(X['cluster.pred'], dtype=str)
+    cell_types, labels = np.unique(clusters, return_inverse=True)
+    data_df = X.iloc[:,:-1]
+    adata = anndata.AnnData(X=data_df)
+    adata.obs["labels"] = labels
+    adata.obs["cell_type"] = clusters
+
+    return adata
+
 ### example
 """
 from scvi.data._anndata import setup_anndata

@@ -8,6 +8,7 @@ from tensorflow.errors import *
 from copyvae.preprocess import *
 from scipy.stats import poisson
 import tensorflow_probability as tfp
+from copyvae.heatmap import *
 
 def validate_params(mu, theta):
 
@@ -87,6 +88,15 @@ def poisson_prior(batch_dim, genes_dim, max_cp=6, lam=2):
     return cat_dis
 
 
+def dirichlet_prior(batch, genes):
+
+    alpha = [1, 5, 10, 5, 1, 1, 1]
+    dist = tfp.distributions.Dirichlet(alpha)
+    d = dist.sample([batch, genes])
+    cat_dis = tfp.distributions.Categorical(probs=d)
+    return cat_dis
+
+
 class FullyConnLayer(keras.layers.Layer):
 
     def __init__(self,
@@ -151,11 +161,13 @@ class Sampling(keras.layers.Layer):
 class GumbelSoftmaxSampling(keras.layers.Layer):
     """ reparameterize categorical distribution """
 
-    def call(self, inputs, temp=0.1, eps=1e-20):
+    def call(self, inputs, bin_size=25,temp=0.1, eps=1e-20):
 
         # reshape the dimensions (batch x gene x copies)
         rho = tf.stack(inputs,axis=1)
-        pi = tf.transpose(rho, [0, 2, 1])
+        #pi = tf.transpose(rho, [0, 2, 1])
+        gene_rho = tf.repeat(rho, repeats=bin_size, axis=-1)
+        pi = tf.transpose(gene_rho, [0, 2, 1])
 
         # sample from Gumbel(0, 1)
         u = tf.random.uniform(tf.shape(pi) ,minval=0, maxval=1)
@@ -185,7 +197,7 @@ class GumbelSoftmaxSampling(keras.layers.Layer):
         y = tf.math.multiply(y,cmat)
         sample = tf.math.reduce_sum(y, axis=-1)
 
-        return sample
+        return sample, pi
 
 
 class Encoder(keras.models.Model):
@@ -293,7 +305,7 @@ class DecoderCategorical(keras.models.Model):
         self.px_dropout = Dense(original_dim)
         for i in range(self.max_cp + 1):
             #setattr(self, "rho%i" % i, Dense(original_dim))
-            setattr(self, "rho%i" % i, Dense(original_dim // bin_size)) # 461
+            setattr(self, "rho%i" % i, Dense(original_dim // bin_size))
         self.sampling = GumbelSoftmaxSampling()
         self.k_layer = ScaleLayer()
 
@@ -314,14 +326,9 @@ class DecoderCategorical(keras.models.Model):
             rho_list.append(rho)
         rho_list = tf.nn.softmax(rho_list, axis=0)
         copy, cat_prob = self.sampling(rho_list)
-        ######### copy: batch x bins
-        gene_cn = tf.repeat(copy, repeats=self.bin_size, axis=1)
-        ######### gene_cn: batch x genes
 
-        #mu = self.k_layer(copy)
-        #return [mu, theta, pi], copy, cat_prob
-        mu = self.k_layer(gene_cn)
-        return [mu, theta, pi], gene_cn, cat_prob
+        mu = self.k_layer(copy)
+        return [mu, theta, pi], copy, cat_prob
 
 
 class CopyVAE(VariationalAutoEncoder):
@@ -353,7 +360,7 @@ class CopyVAE(VariationalAutoEncoder):
         #### copy number KL
         cn_dis = tfp.distributions.Categorical(probs=rho)
         cn_prior = poisson_prior(rho.shape[0], rho.shape[1])
-        kl_copy = 0.5 * tf.reduce_sum(
+        kl_copy = 0.05 * tf.reduce_sum(
                                         tfp.distributions.kl_divergence(
                                                                         cn_dis,
                                                                         cn_prior),
@@ -396,19 +403,37 @@ def train_vae(vae, data, batch_size = 128, epochs = 10):
 
 
 ### example
-"""
+#"""
 #data_path_scvi = '../data/scvi_data/'
-data_path_kat = '../data/copykat_data/txt_files/GSM4476485.txt'
+#data_path_kat = '../data/copykat_data/txt_files/GSM4476485.txt'
 #adata = load_cortex_txt(data_path_scvi + 'expression_mRNA_17-Aug-2014.txt')
-adata = load_copykat_data(data_path_kat)
+#adata = load_copykat_data(data_path_kat)
+data_path = '/raid/mandichen/bined_expressed_cell.csv'
+adata = load_data(data_path)
 x_train = adata.X
 
-for d in ['/device:GPU:6', '/device:GPU:7']:
-    with tf.device(d):
+#for d in ['/device:GPU:6', '/device:GPU:7']:
+d = '/device:GPU:7'
+with tf.device(d):
 
-        #model = VariationalAutoEncoder(x_train.shape[-1], 128, 10)
-        model = CopyVAE(x_train.shape[-1], 128, 10)
-        copy_vae = train_vae(model, x_train, epochs = 400)
-        z_mean, _, z = copy_vae.encoder.predict(adata.X)
-        reconstruction, copy, _ = copy_vae.decoder(z)
-"""
+    #model = VariationalAutoEncoder(x_train.shape[-1], 128, 10)
+    model = CopyVAE(x_train.shape[-1], 128, 10)
+    copy_vae = train_vae(model, x_train, epochs = 300)
+    z_mean, _, z = copy_vae.encoder.predict(adata.X)
+    reconstruction, copy, _ = copy_vae.decoder(z)
+
+    draw_heatmap(copy,'gene_copies')
+    with open('copy.npy', 'wb') as f:
+        np.save(f, copy)
+
+    gn = x_train.shape[1]
+    bins = gn//25
+    bin_arr = np.split(copy, bins, axis=1)
+    bined_genes = np.stack(bin_arr,axis=1)
+    median_cp = np.median(bined_genes,axis=2)
+
+    draw_heatmap(median_cp,'bin_copies')
+    with open('median_cp.npy', 'wb') as f:
+        np.save(f, median_cp)
+
+#"""
