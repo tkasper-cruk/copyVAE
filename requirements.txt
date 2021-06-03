@@ -1,4 +1,7 @@
+numpy
 pandas
 anndata
-h5py
-tqdm
+scanpy
+tensorflow-probability
+matplotlib
+seaborn

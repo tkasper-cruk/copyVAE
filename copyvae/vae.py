@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
+
 import numpy as np
 import tensorflow as tf
+import tensorflow_probability as tfp
 import tensorflow.keras as keras
 from tensorflow.keras.layers import *
 from tensorflow.keras.initializers import *
 from tensorflow.errors import *
-from copyvae.preprocess import *
 from scipy.stats import poisson
-import tensorflow_probability as tfp
-from copyvae.heatmap import *
+from copyvae.preprocess import *
+from copyvae.graphics import *
 
 def validate_params(mu, theta):
 
@@ -17,13 +18,15 @@ def validate_params(mu, theta):
     except InvalidArgumentError:
         print("Invalid mu")
         #print(mu)
-        return False
+        #return False
+        raise
     try:
         tf.debugging.assert_non_negative(theta)
     except InvalidArgumentError:
         print("Invalid theta")
         #print(theta)
-        return False
+        #return False
+        raise
     return True
 
 
@@ -403,12 +406,8 @@ def train_vae(vae, data, batch_size = 128, epochs = 10):
 
 
 ### example
-#"""
-#data_path_scvi = '../data/scvi_data/'
-#data_path_kat = '../data/copykat_data/txt_files/GSM4476485.txt'
-#adata = load_cortex_txt(data_path_scvi + 'expression_mRNA_17-Aug-2014.txt')
-#adata = load_copykat_data(data_path_kat)
-data_path = '/raid/mandichen/bined_expressed_cell.csv'
+"""
+data_path = './bined_expressed_cell.csv'
 adata = load_data(data_path)
 x_train = adata.X
 
@@ -421,6 +420,11 @@ with tf.device(d):
     copy_vae = train_vae(model, x_train, epochs = 300)
     z_mean, _, z = copy_vae.encoder.predict(adata.X)
     reconstruction, copy, _ = copy_vae.decoder(z)
+
+    adata.obsm['latent'] = z_mean
+    adata.obsm['cn'] = copy
+    draw_umap(adata, 'latent', '_latent')
+    draw_umap(adata, 'cn', '_cn')
 
     draw_heatmap(copy,'gene_copies')
     with open('copy.npy', 'wb') as f:
@@ -436,4 +440,4 @@ with tf.device(d):
     with open('median_cp.npy', 'wb') as f:
         np.save(f, median_cp)
 
-#"""
+"""
