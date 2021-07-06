@@ -27,3 +27,24 @@ def draw_umap(adata, feature, file_name):
                 )
 
     return None
+
+
+def plot_breakpoints(data_arr, bp_array, file_name):
+    """ Show breakpoints on scatter plot
+
+    Args:
+        data_arr: observations (1d array)
+        bp_arr: breakpoint array
+        file_name: (strings)
+
+    Outputs:
+        scatter plot with breakpoints
+    """
+
+    plt.figure(figsize=(40,5),dpi=120)
+    fig = sns.scatterplot(data=data_arr, s=15).get_figure()
+    for bp in bp_array:
+        plt.axvline(x=bp, color='orange')
+    fig.savefig('figures/{}.png'.format(file_name))
+
+    return None

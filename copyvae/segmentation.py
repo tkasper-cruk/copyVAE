@@ -2,7 +2,7 @@
 
 import numpy as np
 import scipy.special as sc
-from copyvae.graphics import draw_heatmap
+from copyvae.graphics import draw_heatmap, plot_breakpoints
 
 
 def log_likelihood(x_array, lam):
@@ -68,7 +68,7 @@ def opt_partition(x_array, beta):
         breakpoints.append(bp)
     breakpoints = sorted(list(set(breakpoints)))
 
-    return breakpoints
+    return np.array(breakpoints)
 
 
 
@@ -114,7 +114,7 @@ def pelt_algorithm(x_array, beta, k=0):
         r_set = new_r_set
 
     breakpoints = sorted(list(set(breakpoints)))
-    return breakpoints
+    return np.array(breakpoints)
 
 
 def pelt_multi(x_array, beta, k=0):
@@ -157,7 +157,7 @@ def pelt_multi(x_array, beta, k=0):
         r_set = new_r_set
 
     breakpoints = sorted(list(set(breakpoints)))
-    return breakpoints
+    return np.array(breakpoints)
 
 
 def incremental_mean(x, mu_pre, n):
@@ -236,21 +236,33 @@ def merge_segments(bincp_array, break_loss=.01):
 
 
 
-bincp_array = np.load("../data/median_cp.npy")
-"""
-resli = []
+bincp_array = np.load("array/median_cp_10latent.npy")
 
-for row in bincp_array:
-    cell_array = row
-    result = merge_segments(cell_array, .1)
-    resli.append(result)
+#resli = []
+#for row in bincp_array:
+#    cell_array = row
+#    result = merge_segments(cell_array, .1)
+#    resli.append(result)
+#res = np.stack(resli, axis=0)
+#draw_heatmap(res,"segment.1")
 
-res = np.stack(resli, axis=0)
-draw_heatmap(res,"segment.1")
-"""
-cell = bincp_array[666:668,:]
+chroms = [(0, 69), (69, 115), (115, 154), (154, 179), (179, 210),
+            (210, 243), (243, 275), (275, 299), (299, 325), (325, 350),
+            (350, 388), (388, 423), (423, 435), (435, 457), (457, 477),
+            (477, 507), (507, 547), (547, 557), (557, 607), (607, 626),
+            (626, 633), (633, 649), (649, 672)
+            ]
+cells = bincp_array[400:]
+
+bp_arr = np.array([])
+for tup in chroms:
+    start_bin = tup[0]
+    end_bin = tup[1]
+    chrom_bps = pelt_multi(cells[:, start_bin:end_bin], beta=np.exp(10.198))
+    bps = chrom_bps + start_bin
+    bp_arr = np.concatenate((bp_arr, bps))
+
 #bps0 = opt_partition(cell, beta=25)
 #bps1 = pelt_algorithm(cell, beta=25)
-bps1 = pelt_multi(cell, beta=52)
-#print(bps0)
-print(bps1)
+cp_arr = np.mean(bincp_array[400:], axis=0)
+plot_breakpoints(cp_arr, bp_arr, 'new_plot')
