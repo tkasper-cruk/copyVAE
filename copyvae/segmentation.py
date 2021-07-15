@@ -2,7 +2,28 @@
 
 import numpy as np
 import scipy.special as sc
+from scipy.stats import poisson
 from copyvae.graphics import draw_heatmap, plot_breakpoints
+
+def compute_ll_matrix(x_array):
+    """ Compute log-likelihood for iid Poisson random variables """
+
+    ll_list = []
+    for lam in range(1,7):
+        likelihood = poisson.logpmf(x_array, lam)
+        ll = np.sum(likelihood, axis=0)
+        ll_list.append(ll)
+
+    return np.array(ll_list)
+
+
+def value_func(x_array):
+    """ Cost function: -2 x LL """
+
+    max_cp_ll = x_array.sum(axis=1).max()
+    cost = -2 * max_cp_ll
+
+    return cost
 
 
 def log_likelihood(x_array, lam):
@@ -32,7 +53,7 @@ def cost_func(x_array, multi = False):
     if multi:
         for lam in range(1,7):
             cost = cost - 2 * log_likelihood_multi(x_array, lam)
-        cost = np.sum(cost)
+        #cost = np.sum(cost)
 
     else:
         for lam in range(1,7):
@@ -134,12 +155,13 @@ def pelt_multi(x_array, beta, k=0):
     breakpoints = []
     n = np.shape(x_array)[1]
     r_set = [0]
+    ll_array = compute_ll_matrix(x_array)
 
     for j in range(1, n+1):
         local_f = {}
 
         for i in r_set:
-            v = f_dict[i] + cost_func(x_array[:,i+1:j], multi=True) + beta
+            v = f_dict[i] + value_func(ll_array[:,i+1:j]) + beta
             local_f[i] = v
 
         f_dict[j] = min(local_f.values())
@@ -150,7 +172,7 @@ def pelt_multi(x_array, beta, k=0):
         r_set.append(j)
         new_r_set = []
         for t in r_set:
-            left = f_dict[t] + cost_func(x_array[:,t+1:j], multi=True) + k
+            left = f_dict[t] + value_func(ll_array[:,t+1:j]) + k
             right = f_dict[j]
             if left <= right:
                 new_r_set.append(t)
@@ -195,7 +217,6 @@ def merge_bins(bincp_array):
 
 def merge_segments(bincp_array, break_loss=.01):
 
-    #bp_array = [0]
     segcp_array = np.array([])
 
     mean_pre = -1
@@ -235,8 +256,14 @@ def merge_segments(bincp_array, break_loss=.01):
 
 
 
+from copyvae.clustering import find_clones
 
-bincp_array = np.load("array/median_cp_10latent.npy")
+bincp_array = np.load('median_cp.npy')
+d= np.load('latent.npy')
+
+pred = find_clones(d)
+mask = (1-pred).astype(bool)
+cells = bincp_array[mask]
 
 #resli = []
 #for row in bincp_array:
@@ -252,17 +279,20 @@ chroms = [(0, 69), (69, 115), (115, 154), (154, 179), (179, 210),
             (477, 507), (507, 547), (547, 557), (557, 607), (607, 626),
             (626, 633), (633, 649), (649, 672)
             ]
-cells = bincp_array[400:]
 
+k = np.shape(cells)[0]
+n = np.shape(cells)[1]
+beta = 0.5 * k * np.log(n)
 bp_arr = np.array([])
+
 for tup in chroms:
     start_bin = tup[0]
     end_bin = tup[1]
-    chrom_bps = pelt_multi(cells[:, start_bin:end_bin], beta=np.exp(10.198))
+    chrom_bps = pelt_multi(cells[:, start_bin:end_bin], beta)
     bps = chrom_bps + start_bin
     bp_arr = np.concatenate((bp_arr, bps))
 
-#bps0 = opt_partition(cell, beta=25)
-#bps1 = pelt_algorithm(cell, beta=25)
-cp_arr = np.mean(bincp_array[400:], axis=0)
-plot_breakpoints(cp_arr, bp_arr, 'new_plot')
+
+print(bp_arr)
+cp_arr = np.mean(cells, axis=0)
+plot_breakpoints(cp_arr, bp_arr, 'bp_plot')
