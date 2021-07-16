@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#! /usr/bin/env python3
 
 import numpy as np
 import scipy.special as sc
@@ -282,7 +282,7 @@ chroms = [(0, 69), (69, 115), (115, 154), (154, 179), (179, 210),
 
 k = np.shape(cells)[0]
 n = np.shape(cells)[1]
-beta = 0.5 * k * np.log(n)
+beta = 0.45 * k * np.log(n)
 bp_arr = np.array([])
 
 for tup in chroms:
@@ -292,7 +292,17 @@ for tup in chroms:
     bps = chrom_bps + start_bin
     bp_arr = np.concatenate((bp_arr, bps))
 
-
+bp_arr = bp_arr.astype(int)
 print(bp_arr)
 cp_arr = np.mean(cells, axis=0)
 plot_breakpoints(cp_arr, bp_arr, 'bp_plot')
+
+seg_profile = np.zeros_like(bincp_array)
+for c in range(np.shape(bincp_array)[0]):
+    for i in range(len(bp_arr)-1):
+        start_p = bp_arr[i]
+        end_p = bp_arr[i+1]
+        seg_profile[c, start_p:end_p] = np.mean(bincp_array[c, start_p:end_p])
+    seg_profile[c, end_p:] = np.mean(bincp_array[c, end_p:])
+
+draw_heatmap(seg_profile, "after_seg")
