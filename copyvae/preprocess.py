@@ -67,6 +67,25 @@ def load_data(file):
 
     return adata
 
+
+def annotate_data(data):
+    """ Pack data into anndata class
+
+    Args:
+        data: pandas DataFrame
+    Returns:
+        adata: anndata class
+    """
+
+    clusters = np.asarray(data['cluster.pred'], dtype=str)
+    cell_types, labels = np.unique(clusters, return_inverse=True)
+    data_df = data.iloc[:,:-1]
+    adata = anndata.AnnData(data=data_df)
+    adata.obs["labels"] = labels
+    adata.obs["cell_type"] = clusters
+
+    return adata
+
 ### example
 """
 from scvi.data._anndata import setup_anndata
