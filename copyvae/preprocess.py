@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#! /usr/bin/env python3
 
 import csv
 import pandas as pd
@@ -28,7 +28,9 @@ def load_cortex_txt(path_to_file: str) -> anndata.AnnData:
     gene_names = np.asarray(gene_names, dtype=str)
     gene_indices = []
     extra_gene_indices = []
-    gene_indices = np.concatenate([gene_indices, extra_gene_indices]).astype(np.int32)
+    gene_indices = np.concatenate(
+                                [gene_indices, 
+                                extra_gene_indices]).astype(np.int32)
     if gene_indices.size == 0:
         gene_indices = slice(None)
 
@@ -82,7 +84,7 @@ def annotate_data(data):
     clusters = np.asarray(data['cluster.pred'], dtype=str)
     cell_types, labels = np.unique(clusters, return_inverse=True)
     data_df = data.iloc[:,:-1]
-    adata = anndata.AnnData(data=data_df)
+    adata = anndata.AnnData(X=data_df)
     adata.obs["labels"] = labels
     adata.obs["cell_type"] = clusters
 

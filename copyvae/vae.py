@@ -10,27 +10,27 @@ from tensorflow.errors import *
 from copyvae.preprocess import *
 from copyvae.graphics import *
 
+
 def validate_params(mu, theta):
 
     try:
         tf.debugging.assert_non_negative(mu)
     except InvalidArgumentError:
         print("Invalid mu")
-        #print(mu)
-        #return False
+        # print(mu)
+        # return False
         raise
     try:
         tf.debugging.assert_non_negative(theta)
     except InvalidArgumentError:
         print("Invalid theta")
-        #print(theta)
-        #return False
+        # print(theta)
+        # return False
         raise
     return True
 
 
 def zinb_pos(y_true, y_pred, eps=1e-8):
-
     """
     Parameters
     ----------
@@ -48,7 +48,7 @@ def zinb_pos(y_true, y_pred, eps=1e-8):
     theta = y_pred[1]
     pi = y_pred[2]
 
-    arg_validated = validate_params(mu,theta)
+    arg_validated = validate_params(mu, theta)
     if not arg_validated:
         print("invalid arguments for zinb!")
         return None
@@ -80,7 +80,7 @@ def zinb_pos(y_true, y_pred, eps=1e-8):
 def poisson_prior(batch_dim, genes_dim, max_cp=6, lam=2):
 
     poi = tfp.distributions.Poisson(lam)
-    poi_prob = poi.prob(np.arange(max_cp+1))
+    poi_prob = poi.prob(np.arange(max_cp + 1))
     cat_prob = poi_prob / np.sum(poi_prob)
     a = tf.expand_dims(cat_prob, axis=0)
     b = tf.expand_dims(a, axis=0)
@@ -103,29 +103,29 @@ def dirichlet_prior(batch, genes):
 class FullyConnLayer(keras.layers.Layer):
 
     def __init__(self,
-                  num_outputs,
-                  STD=0.01,
-                  keep_prob=None,
-                  activation=None,
-                  bn=False):
+                 num_outputs,
+                 STD=0.01,
+                 keep_prob=None,
+                 activation=None,
+                 bn=False):
         super(FullyConnLayer, self).__init__()
         self.drop = keep_prob
         self.act = activation
         self.bn_on = bn
-        self.fc = Dense(num_outputs, \
-                        kernel_initializer = TruncatedNormal(stddev=STD))
+        self.fc = Dense(num_outputs,
+                        kernel_initializer=TruncatedNormal(stddev=STD))
         self.bn = BatchNormalization(momentum=0.01, epsilon=0.001)
         if self.drop:
-          self.dropout = Dropout(self.drop)
+            self.dropout = Dropout(self.drop)
 
     def call(self, inputs):
         x = self.fc(inputs)
         if self.bn_on:
-          x = self.bn(x)
+            x = self.bn(x)
         if self.act:
-          x = self.act(x)
+            x = self.act(x)
         if self.drop:
-          x = self.dropout(x)
+            x = self.dropout(x)
         return x
 
 
@@ -136,13 +136,13 @@ class ScaleLayer(keras.layers.Layer):
 
     def build(self, input_shape):
         self.w = self.add_weight('weight',
-                                    shape=input_shape[1:],
-                                    initializer='random_normal',
-                                    trainable=True)
+                                 shape=input_shape[1:],
+                                 initializer='random_normal',
+                                 trainable=True)
         self.b = self.add_weight('bias',
-                                    shape=input_shape[1:],
-                                    initializer='random_normal',
-                                    trainable=True)
+                                 shape=input_shape[1:],
+                                 initializer='random_normal',
+                                 trainable=True)
         self.act = Activation('sigmoid')
 
     def call(self, x):
@@ -164,16 +164,16 @@ class Sampling(keras.layers.Layer):
 class GumbelSoftmaxSampling(keras.layers.Layer):
     """ reparameterize categorical distribution """
 
-    def call(self, inputs, bin_size=25,temp=0.1, eps=1e-20):
+    def call(self, inputs, bin_size=25, temp=0.1, eps=1e-20):
 
         # reshape the dimensions (batch x gene x copies)
-        rho = tf.stack(inputs,axis=1)
+        rho = tf.stack(inputs, axis=1)
         #pi = tf.transpose(rho, [0, 2, 1])
         gene_rho = tf.repeat(rho, repeats=bin_size, axis=-1)
         pi = tf.transpose(gene_rho, [0, 2, 1])
 
         # sample from Gumbel(0, 1)
-        u = tf.random.uniform(tf.shape(pi) ,minval=0, maxval=1)
+        u = tf.random.uniform(tf.shape(pi), minval=0, maxval=1)
         # Gumbel-Softmax
         g = - tf.math.log(- tf.math.log(u + eps) + eps)
         z = (tf.math.log(pi + eps) + g) / temp
@@ -181,10 +181,10 @@ class GumbelSoftmaxSampling(keras.layers.Layer):
 
         # one-hot map using argmax, but differentiate w.r.t. soft sample y
         y_hard = tf.cast(
-                        tf.equal(y,
-                                tf.math.reduce_max(y, axis=-1, keepdims=True)
-                                ),
-                                tf.float32)
+            tf.equal(y,
+                     tf.math.reduce_max(y, axis=-1, keepdims=True)
+                     ),
+            tf.float32)
         y = tf.stop_gradient(y_hard - y) + y
 
         # constract copy number matrix
@@ -193,11 +193,11 @@ class GumbelSoftmaxSampling(keras.layers.Layer):
         copy = tf.shape(pi)[2]
         a = tf.reshape(tf.range(copy), (-1, copy))
         b = tf.tile(a, (gene, 1))
-        c = tf.reshape(b,(-1,gene,copy))
-        cmat = tf.cast(tf.tile(c,(bat,1,1)),tf.float32)
+        c = tf.reshape(b, (-1, gene, copy))
+        cmat = tf.cast(tf.tile(c, (bat, 1, 1)), tf.float32)
 
         # copy number map
-        y = tf.math.multiply(y,cmat)
+        y = tf.math.multiply(y, cmat)
         sample = tf.math.reduce_sum(y, axis=-1)
 
         return sample, pi
@@ -206,20 +206,24 @@ class GumbelSoftmaxSampling(keras.layers.Layer):
 class Encoder(keras.models.Model):
 
     def __init__(self, latent_dim=10, intermediate_dim=128, n_layer=2,
-                                                        name="encoder", **kwargs):
+                 name="encoder", **kwargs):
         super(Encoder, self).__init__(name=name, **kwargs)
         self.eps = 1e-4
         self.n_layer = n_layer
 
         for i in range(self.n_layer):
-            setattr(self, "dense%i" % i, FullyConnLayer(intermediate_dim,
-                                                        activation= Activation('relu'),
-                                                        bn=True,
-                                                        keep_prob= .1))
+            setattr(
+                self,
+                "dense%i" %
+                i,
+                FullyConnLayer(
+                    intermediate_dim,
+                    activation=Activation('relu'),
+                    bn=True,
+                    keep_prob=.1))
         self.dense_mean = Dense(latent_dim)
         self.dense_log_var = Dense(latent_dim)
         self.sampling = Sampling()
-
 
     def call(self, inputs):
         x = tf.math.log(1 + inputs)
@@ -234,26 +238,35 @@ class Encoder(keras.models.Model):
 
 class Decoder(keras.models.Model):
 
-    def __init__(self, original_dim, intermediate_dim, n_layer=3, name="decoder",
-                                                                        **kwargs):
+    def __init__(
+            self,
+            original_dim,
+            intermediate_dim,
+            n_layer=3,
+            name="decoder",
+            **kwargs):
         super(Decoder, self).__init__(name=name, **kwargs)
         self.n_layer = n_layer
         for i in range(self.n_layer):
-            setattr(self, "dense%i" % i, FullyConnLayer(intermediate_dim,
-                                                        activation= Activation('relu'),
-                                                        bn=True))
+            setattr(
+                self,
+                "dense%i" %
+                i,
+                FullyConnLayer(
+                    intermediate_dim,
+                    activation=Activation('relu'),
+                    bn=True))
 
         self.px_rate = Dense(original_dim, activation='exponential')
         self.px_r = Dense(original_dim)
         self.px_dropout = Dense(original_dim)
-
 
     def call(self, inputs):
         x = inputs
         for i in range(self.n_layer):
             x = getattr(self, "dense%i" % i)(x)
         px_rate = tf.clip_by_value(self.px_rate(x), clip_value_min=0,
-                                                    clip_value_max=12)
+                                   clip_value_max=12)
         px_r = self.px_r(x)
         px_r = tf.math.exp(px_r)
         px_dropout = self.px_dropout(x)
@@ -275,15 +288,14 @@ class VariationalAutoEncoder(keras.models.Model):
         self.encoder = Encoder(latent_dim, intermediate_dim)
         self.decoder = Decoder(original_dim, intermediate_dim)
 
-
     def call(self, inputs):
         z_mean, z_log_var, z = self.encoder(inputs)
         reconstructed = self.decoder(z)
         # Add KL divergence regularization loss.
         kl_loss = 0.5 * tf.reduce_sum(
-                                        tf.square(z_mean) + z_log_var \
-                                        - tf.math.log(1e-8 + z_log_var) - 1,
-                                        1)
+            tf.square(z_mean) + z_log_var
+            - tf.math.log(1e-8 + z_log_var) - 1,
+            1)
         self.add_loss(kl_loss)
         return reconstructed
 
@@ -291,19 +303,24 @@ class VariationalAutoEncoder(keras.models.Model):
 class DecoderCategorical(keras.models.Model):
 
     def __init__(self, original_dim, intermediate_dim,
-                                            bin_size=25,
-                                            max_cp=6,
-                                            n_layer=2,
-                                            name="decoder_categorical", **kwargs):
+                 bin_size=25,
+                 max_cp=6,
+                 n_layer=2,
+                 name="decoder_categorical", **kwargs):
         super(DecoderCategorical, self).__init__(name=name, **kwargs)
 
         self.max_cp = max_cp
         self.n_layer = n_layer
         self.bin_size = bin_size
         for i in range(self.n_layer):
-            setattr(self, "dense%i" % i, FullyConnLayer(intermediate_dim,
-                                                        activation= Activation('relu'),
-                                                        bn=True))
+            setattr(
+                self,
+                "dense%i" %
+                i,
+                FullyConnLayer(
+                    intermediate_dim,
+                    activation=Activation('relu'),
+                    bn=True))
         self.px_r = Dense(original_dim)
         self.px_dropout = Dense(original_dim)
         for i in range(self.max_cp + 1):
@@ -311,7 +328,6 @@ class DecoderCategorical(keras.models.Model):
             setattr(self, "rho%i" % i, Dense(original_dim // bin_size))
         self.sampling = GumbelSoftmaxSampling()
         self.k_layer = ScaleLayer()
-
 
     def call(self, inputs):
         x = inputs
@@ -337,43 +353,42 @@ class DecoderCategorical(keras.models.Model):
 class CopyVAE(VariationalAutoEncoder):
 
     def __init__(
-        self,
-        original_dim,
-        intermediate_dim=128,
-        latent_dim=10,
-        name="CopyVAE",
-        **kwargs):
+            self,
+            original_dim,
+            intermediate_dim=128,
+            latent_dim=10,
+            name="CopyVAE",
+            **kwargs):
         super().__init__(original_dim,
                          intermediate_dim,
                          latent_dim,
                          name)
         self.decoder = DecoderCategorical(original_dim, intermediate_dim)
 
-
     def call(self, inputs):
 
         z_mean, z_log_var, z = self.encoder(inputs)
         reconstructed, copy, rho = self.decoder(z)
-        #### latent KL
+        # latent KL
         kl_loss = 0.5 * tf.reduce_sum(
-                                        tf.square(z_mean) + z_log_var \
-                                        - tf.math.log(1e-8 + z_log_var) - 1,
-                                        1)
+            tf.square(z_mean) + z_log_var
+            - tf.math.log(1e-8 + z_log_var) - 1,
+            1)
         self.add_loss(kl_loss)
-        #### copy number KL
+        # copy number KL
         cn_dis = tfp.distributions.Categorical(probs=rho)
         cn_prior = poisson_prior(rho.shape[0], rho.shape[1])
         kl_copy = 0.05 * tf.reduce_sum(
-                                        tfp.distributions.kl_divergence(
-                                                                        cn_dis,
-                                                                        cn_prior),
-                                        1)
+            tfp.distributions.kl_divergence(
+                cn_dis,
+                cn_prior),
+            1)
         self.add_loss(kl_copy)
 
         return reconstructed
 
 
-def train_vae(vae, data, batch_size = 128, epochs = 10):
+def train_vae(vae, data, batch_size=128, epochs=10):
 
     optimizer = tf.keras.optimizers.Adam(learning_rate=1e-3)
     loss_metric = tf.keras.metrics.Mean()
@@ -392,22 +407,23 @@ def train_vae(vae, data, batch_size = 128, epochs = 10):
                     reconstructed = vae(x_batch_train)
                     # Compute reconstruction loss
                     recon = - zinb_pos(x_batch_train, reconstructed)
-                    loss = recon + vae.losses   #sum(vae.losses)
+                    loss = recon + vae.losses  # sum(vae.losses)
 
                 grads = tape.gradient(loss, vae.trainable_weights)
                 optimizer.apply_gradients(zip(grads, vae.trainable_weights))
                 loss_metric(loss)
-            except:
+            except BaseException:
                 return vae
             if step % 100 == 0:
                 #print("step %d: mean loss = %.4f" % (step, loss_metric.result()))
-                print("step %d: mean loss = %s" % (step, "{:.2e}".format(loss_metric.result())))
+                print("step %d: mean loss = %s" %
+                      (step, "{:.2e}".format(loss_metric.result())))
     return vae
 
 
-### example
+# example
 """
-data_path = './bined_expressed_cell.csv'
+data_path = '/raid/mandichen/bined_expressed_cell.csv'
 adata = load_data(data_path)
 x_train = adata.X
 

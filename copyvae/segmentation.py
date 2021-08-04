@@ -3,7 +3,7 @@
 import numpy as np
 import scipy.special as sc
 from scipy.stats import poisson
-from copyvae.graphics import draw_heatmap, plot_breakpoints
+
 
 def compute_ll_matrix(x_array):
     """ Compute log-likelihood for iid Poisson random variables """
@@ -182,6 +182,27 @@ def pelt_multi(x_array, beta, k=0):
     return np.array(breakpoints)
 
 
+def bin_to_segment(bincn_arr, breakpoints):
+    """ Generate segment profile for all samples
+
+    Args:
+        bincn_arr: bin copy number (cell x bin)
+        breakpoints: breakpoint array
+    Returns:
+        seg_arr: segment array (cell x segment)
+    """
+
+    seg_arr = np.zeros_like(bincn_arr)
+    for c in range(np.shape(bincn_arr)[0]):
+        for i in range(len(breakpoints)-1):
+            start_p = breakpoints[i]
+            end_p = breakpoints[i+1]
+            seg_arr[c, start_p:end_p] = np.mean(bincn_arr[c, start_p:end_p])
+        seg_arr[c, end_p:] = np.mean(bincn_arr[c, end_p:])
+
+    return seg_arr
+
+
 def incremental_mean(x, mu_pre, n):
 
     mu = (x + (n - 1) * mu_pre)/n
@@ -256,7 +277,10 @@ def merge_segments(bincp_array, break_loss=.01):
 
 
 
+""" example
 from copyvae.clustering import find_clones
+from scipy import stats
+from copyvae.graphics import draw_heatmap, plot_breakpoints
 
 bincp_array = np.load('median_cp.npy')
 d= np.load('latent.npy')
@@ -294,8 +318,6 @@ for tup in chroms:
 
 bp_arr = bp_arr.astype(int)
 print(bp_arr)
-cp_arr = np.mean(cells, axis=0)
-plot_breakpoints(cp_arr, bp_arr, 'bp_plot')
 
 seg_profile = np.zeros_like(bincp_array)
 for c in range(np.shape(bincp_array)[0]):
@@ -305,4 +327,7 @@ for c in range(np.shape(bincp_array)[0]):
         seg_profile[c, start_p:end_p] = np.mean(bincp_array[c, start_p:end_p])
     seg_profile[c, end_p:] = np.mean(bincp_array[c, end_p:])
 
-draw_heatmap(seg_profile, "after_seg")
+#with open('segments.npy', 'wb') as f:
+#    np.save(f, seg_profile)
+#draw_heatmap(seg_profile, "tumour_seg")
+"""

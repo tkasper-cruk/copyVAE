@@ -40,6 +40,7 @@ def bin_genes_umi(umi_counts, bin_size, gene_metadata='../data/mart_export.txt')
     x_chrom = gene_merge[gene_merge['chr']=='X']
     x_chrom = x_chrom.sort_values(by=['Gene start (bp)'])
     sorted_gene = pd.concat([coding_gene, x_chrom], ignore_index=True)
+    sorted_gene.to_csv('sorted_genes.csv', sep='\t')
 
     ## remove non-expressed genens
     ch = sorted_gene.iloc[:, 1:-6].astype('int32')
