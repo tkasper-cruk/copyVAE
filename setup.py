@@ -18,6 +18,11 @@ setup(
     url = 'https://github.com/Lamicc/copyVAE',
     author = 'Chen & Bonet & Kurt',
     packages = find_packages(include = ['copyvae', 'copyvae.*']),
+    entry_points = {
+        'console_scripts': [
+            'copyvae = copyvae.pipeline:main',
+        ],
+    },
     install_requires = required,
     extras_require = {
         'interactive': ['matplotlib'],

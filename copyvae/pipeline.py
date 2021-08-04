@@ -1,12 +1,16 @@
 #! /usr/bin/env python3
 
+import argparse
 import numpy as np
+import tensorflow as tf
+
 from copyvae.binning import bin_genes_umi
 from copyvae.preprocess import annotate_data
 from copyvae.vae import CopyVAE, train_vae
 from copyvae.clustering import find_clones
 from copyvae.segmentation import bin_to_segment
 from copyvae.cell_tools import Clone
+
 
 def run_pipeline(umi_counts):
     """ Main pipeline
@@ -103,8 +107,24 @@ def run_pipeline(umi_counts):
     return None
 
 
-import tensorflow as tf
+def main():
 
-d = '/device:GPU:0'
-with tf.device(d):
-    run_pipeline('GSM4476485_combined_UMIcount_CellTypes_DCIS1.txt')
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-f', '--input', required=True, help="input UMI")
+    parser.add_argument('-g', '--gpu', type=int, help="GPU id")
+
+    args = parser.parse_args()
+    file = args.input
+
+    if args.gpu:
+        dvc = '/device:GPU:{}'.format(args.gpu)
+    else:
+        dvc = '/device:GPU:0'
+    
+    with tf.device(dvc):
+        run_pipeline(file)
+
+    
+
+if __name__ == "__main__":
+    main()
