@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#! /usr/bin/env python3
 
 import numpy as np
 import tensorflow as tf
@@ -7,7 +7,6 @@ import tensorflow.keras as keras
 from tensorflow.keras.layers import *
 from tensorflow.keras.initializers import *
 from tensorflow.errors import *
-from scipy.stats import poisson
 from copyvae.preprocess import *
 from copyvae.graphics import *
 
@@ -80,9 +79,10 @@ def zinb_pos(y_true, y_pred, eps=1e-8):
 
 def poisson_prior(batch_dim, genes_dim, max_cp=6, lam=2):
 
-    poi_prob = poisson.pmf(np.arange(max_cp+1), lam)
+    poi = tfp.distributions.Poisson(lam)
+    poi_prob = poi.prob(np.arange(max_cp+1))
     cat_prob = poi_prob / np.sum(poi_prob)
-    a = tf.expand_dims(cat_prob,axis=0)
+    a = tf.expand_dims(cat_prob, axis=0)
     b = tf.expand_dims(a, axis=0)
     c = tf.repeat(b, repeats=genes_dim, axis=1)
     d = tf.cast(tf.repeat(c, repeats=batch_dim, axis=0), tf.float32)
