@@ -3,8 +3,10 @@
 import csv
 import pandas as pd
 import numpy as np
+import logging
 import anndata
 
+logger = logging.getLogger(__name__)
 
 def load_cortex_txt(path_to_file: str) -> anndata.AnnData:
     logger.info("Loading Cortex data from {}".format(path_to_file))
