@@ -25,6 +25,7 @@ def run_pipeline(umi_counts):
         epochs = number of epochs training
     """
 
+    max_cp = 6
     bin_size = 25
     intermediate_dim = 128
     latent_dim = 10
@@ -37,7 +38,11 @@ def run_pipeline(umi_counts):
     x_train = adata.X
 
     ## train model
-    model = CopyVAE(x_train.shape[-1], intermediate_dim, latent_dim)
+    model = CopyVAE(x_train.shape[-1],
+                    intermediate_dim,
+                    latent_dim,
+                    bin_size=bin_size,
+                    max_cp=max_cp)
     copy_vae = train_vae(model, x_train, batch_size, epochs)
 
     ## get copy number and latent output
