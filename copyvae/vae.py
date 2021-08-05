@@ -35,7 +35,7 @@ def zinb_pos(y_true, y_pred, eps=1e-8):
     Args:
         y_true: true values
         y_pred: predicted values
-        eps: numerical stability constant 
+        eps: numerical stability constant
     Parameters:
         x: Data
         mu: mean of the negative binomial (positive (batch x vars)
@@ -82,7 +82,7 @@ def zinb_pos(y_true, y_pred, eps=1e-8):
 
 
 def poisson_prior(batch_dim, genes_dim, max_cp=6, lam=2):
-    """ poisson-like categorical distribution 
+    """ poisson-like categorical distribution
 
     Args:
         batch_dim: number of example in minibatch
@@ -106,8 +106,8 @@ def poisson_prior(batch_dim, genes_dim, max_cp=6, lam=2):
 
 
 def dirichlet_prior(batch, genes):
-    """ categorical distribution from a Dirichlet prior 
-    
+    """ categorical distribution from a dirichlet prior
+
     Args:
         batch: number of example in minibatch
         genes: number of genes
@@ -393,12 +393,12 @@ class CopyVAE(VariationalAutoEncoder):
                          intermediate_dim,
                          latent_dim,
                          name)
-        self.decoder = DecoderCategorical(original_dim, 
-                                        intermediate_dim,
-                                        bin_size=bin_size,
-                                        max_cp=max_cp,
-                                        n_layer=decoder_layers
-                                        )
+        self.decoder = DecoderCategorical(original_dim,
+                                          intermediate_dim,
+                                          bin_size=bin_size,
+                                          max_cp=max_cp,
+                                          n_layer=decoder_layers
+                                          )
 
     def call(self, inputs):
 
@@ -425,7 +425,7 @@ class CopyVAE(VariationalAutoEncoder):
 
 def train_vae(vae, data, batch_size=128, epochs=10):
     """ Train function
-    
+
     Args:
         vae: VAE object
         data: training examples
@@ -442,8 +442,8 @@ def train_vae(vae, data, batch_size=128, epochs=10):
     train_dataset = train_dataset.shuffle(buffer_size=1024).batch(batch_size)
 
     # Iterate over epochs.
-    for epoch in tqdm(range(epochs)):
-        #print("Start of epoch %d" % (epoch,))
+    tqdm_progress = tqdm(range(epochs), desc='model training')
+    for epoch in tqdm_progress:
 
         # Iterate over the batches of the dataset.
         for step, x_batch_train in enumerate(train_dataset):
@@ -459,8 +459,9 @@ def train_vae(vae, data, batch_size=128, epochs=10):
                 loss_metric(loss)
             except BaseException:
                 return vae
-            #if step % 100 == 0:
-            #    #print("step %d: mean loss = %.4f" % (step, loss_metric.result()))
-            #    print("step %d: mean loss = %s" %
-            #         (step, "{:.2e}".format(loss_metric.result())))
+            if step % 100 == 0:
+                tqdm_progress.set_postfix_str(
+                    s="loss={:.2e}".format(
+                        loss_metric.result()), refresh=True)
+
     return vae
