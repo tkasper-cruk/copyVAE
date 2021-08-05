@@ -23,9 +23,6 @@ def run_pipeline(umi_counts):
         latent_dim: latent dimension for vae
         batch_size: batch size for training
         epochs = number of epochs training
-
-    # TODO extract chrom boundry
-
     """
 
     bin_size = 25
@@ -34,15 +31,8 @@ def run_pipeline(umi_counts):
     batch_size = 128
     epochs = 300
 
-    chroms = [(0, 69), (69, 115), (115, 154), (154, 179), (179, 210),
-                (210, 243), (243, 275), (275, 299), (299, 325), (325, 350),
-                (350, 388), (388, 423), (423, 435), (435, 457), (457, 477),
-                (477, 507), (507, 547), (547, 557), (557, 607), (607, 626),
-                (626, 633), (633, 649), (649, 672)
-                ]
-
     ## assign genes to bins
-    binned_genes = bin_genes_umi(umi_counts, bin_size)
+    binned_genes, chroms = bin_genes_umi(umi_counts, bin_size)
     adata = annotate_data(binned_genes)
     x_train = adata.X
 

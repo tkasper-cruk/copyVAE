@@ -29,17 +29,15 @@ def bin_genes_umi(umi_counts, bin_size, gene_metadata='../data/mart_export.txt')
                             umis, gene_info, right_on=['Gene name'],
                             left_on=['index'], how='inner'
                             )
+    gene_merge.loc[gene_merge.chr=='X', 'chr'] = '23'
     coding_gene = gene_merge[
                                 gene_merge['chr'].isin(
-                                                    np.arange(1,23).astype(str)
+                                                    np.arange(1,24).astype(str)
                                                             )
                                 ]
-    coding_gene['chr'] = coding_gene['chr'].astype(int)
-    coding_gene = coding_gene.sort_values(by=['chr','Gene start (bp)'])
-    coding_gene['chr'] = coding_gene['chr'].astype(str)
-    x_chrom = gene_merge[gene_merge['chr']=='X']
-    x_chrom = x_chrom.sort_values(by=['Gene start (bp)'])
-    sorted_gene = pd.concat([coding_gene, x_chrom], ignore_index=True)
+    coding_gene = coding_gene.copy()
+    coding_gene.loc[:,'chr'] = coding_gene.chr.astype(int)
+    sorted_gene = coding_gene.sort_values(by=['chr','Gene start (bp)'])
     sorted_gene.to_csv('sorted_genes.csv', sep='\t')
 
     ## remove non-expressed genens
@@ -57,6 +55,15 @@ def bin_genes_umi(umi_counts, bin_size, gene_metadata='../data/mart_export.txt')
                                 ].sort_values(by=['expressed','Gene start (bp)']
                                                 )[:n].index
         expressed_gene = expressed_gene.drop(index=ind)
+    
+    ## extract chromosome boundary
+    bin_number = expressed_gene.chr.value_counts() // bin_size
+    chrom_bound = bin_number.sort_index().cumsum()
+    chrom_list = [(0, chrom_bound[1])]
+    for i in range(2, 24):
+        start_p = chrom_bound[i-1]
+        end_p = chrom_bound[i]
+        chrom_list.append((start_p, end_p))
 
     ## clean and add labels
     expressed_gene.drop(columns=expressed_gene.columns[-7:],
@@ -67,4 +74,4 @@ def bin_genes_umi(umi_counts, bin_size, gene_metadata='../data/mart_export.txt')
     expressed_gene = expressed_gene.sort_values(by='cluster.pred')
     expressed_gene.to_csv('bined_expressed_cell.csv', sep='\t')
 
-    return expressed_gene
+    return expressed_gene, chrom_list
