@@ -6,9 +6,8 @@ import tensorflow_probability as tfp
 import tensorflow.keras as keras
 from tensorflow.keras.layers import *
 from tensorflow.keras.initializers import *
-from tensorflow.errors import *
-from copyvae.preprocess import *
-from copyvae.graphics import *
+from tensorflow.errors import InvalidArgumentError
+from tqdm import tqdm
 
 
 def validate_params(mu, theta):
@@ -443,8 +442,8 @@ def train_vae(vae, data, batch_size=128, epochs=10):
     train_dataset = train_dataset.shuffle(buffer_size=1024).batch(batch_size)
 
     # Iterate over epochs.
-    for epoch in range(epochs):
-        print("Start of epoch %d" % (epoch,))
+    for epoch in tqdm(range(epochs)):
+        #print("Start of epoch %d" % (epoch,))
 
         # Iterate over the batches of the dataset.
         for step, x_batch_train in enumerate(train_dataset):
@@ -460,8 +459,8 @@ def train_vae(vae, data, batch_size=128, epochs=10):
                 loss_metric(loss)
             except BaseException:
                 return vae
-            if step % 100 == 0:
-                #print("step %d: mean loss = %.4f" % (step, loss_metric.result()))
-                print("step %d: mean loss = %s" %
-                      (step, "{:.2e}".format(loss_metric.result())))
+            #if step % 100 == 0:
+            #    #print("step %d: mean loss = %.4f" % (step, loss_metric.result()))
+            #    print("step %d: mean loss = %s" %
+            #         (step, "{:.2e}".format(loss_metric.result())))
     return vae
