@@ -14,4 +14,4 @@ For installation, simply download this repo and run the following commands. Pyth
 
 ### Workflow
 
-<img src="https://user-images.githubusercontent.com/4505079/128531426-2736e561-e542-4f1f-bcf9-939d7493880d.png" width="320" />
+<img src="https://user-images.githubusercontent.com/4505079/129555608-480be391-e33b-4d37-8ca3-032646d76439.png" width="320" />
