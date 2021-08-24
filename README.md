@@ -6,3 +6,5 @@ For installation, simply download this repo and run the following commands. Pyth
 
     cd copyVAE/
     pip install -e .
+
+Other details see [Wiki](https://github.com/Lamicc/copyVAE/wiki)
