@@ -7,4 +7,10 @@ For installation, simply download this repo and run the following commands. Pyth
     cd copyVAE/
     pip install -e .
 
-Other details see [Wiki](https://github.com/Lamicc/copyVAE/wiki)
+### Usage
+
+The following command will run the copy number profiling pipeline.
+
+    copyvae path/to/UMI_file
+
+See [Wiki](https://github.com/Lamicc/copyVAE/wiki) for more details.
