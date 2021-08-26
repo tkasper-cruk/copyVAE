@@ -393,6 +393,7 @@ class CopyVAE(VariationalAutoEncoder):
                          intermediate_dim,
                          latent_dim,
                          name)
+        self.max_cp = max_cp
         self.decoder = DecoderCategorical(original_dim,
                                           intermediate_dim,
                                           bin_size=bin_size,
@@ -412,8 +413,8 @@ class CopyVAE(VariationalAutoEncoder):
         self.add_loss(kl_loss)
         # copy number KL
         cn_dis = tfp.distributions.Categorical(probs=rho)
-        cn_prior = poisson_prior(rho.shape[0], rho.shape[1])
-        kl_copy = 0.05 * tf.reduce_sum(
+        cn_prior = poisson_prior(rho.shape[0], rho.shape[1], self.max_cp)
+        kl_copy = 0.04 * tf.reduce_sum(
             tfp.distributions.kl_divergence(
                 cn_dis,
                 cn_prior),
@@ -424,7 +425,7 @@ class CopyVAE(VariationalAutoEncoder):
 
 
 def train_vae(vae, data, batch_size=128, epochs=10):
-    """ Train function
+    """ Training function
 
     Args:
         vae: VAE object
@@ -447,18 +448,18 @@ def train_vae(vae, data, batch_size=128, epochs=10):
 
         # Iterate over the batches of the dataset.
         for step, x_batch_train in enumerate(train_dataset):
-            try:
-                with tf.GradientTape() as tape:
+            #try:
+            with tf.GradientTape() as tape:
                     reconstructed = vae(x_batch_train)
                     # Compute reconstruction loss
                     recon = - zinb_pos(x_batch_train, reconstructed)
                     loss = recon + vae.losses  # sum(vae.losses)
 
-                grads = tape.gradient(loss, vae.trainable_weights)
-                optimizer.apply_gradients(zip(grads, vae.trainable_weights))
-                loss_metric(loss)
-            except BaseException:
-                return vae
+            grads = tape.gradient(loss, vae.trainable_weights)
+            optimizer.apply_gradients(zip(grads, vae.trainable_weights))
+            loss_metric(loss)
+            #except BaseException:
+            #    return vae
             if step % 100 == 0:
                 tqdm_progress.set_postfix_str(
                     s="loss={:.2e}".format(
