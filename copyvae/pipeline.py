@@ -45,15 +45,34 @@ def run_pipeline(umi_counts):
                     latent_dim,
                     bin_size=bin_size,
                     max_cp=max_cp)
-    copy_vae = train_vae(model, x_train, batch_size, epochs)
+    # TODO remove try except after debugging vae training
+    for attempt in range(5):
+        try:
+            copy_vae = train_vae(model, x_train, batch_size, epochs)
+        except BaseException:
+            continue
+        else:
+            break
 
     # get copy number and latent output
-    z_mean, _, z = copy_vae.encoder.predict(adata.X)
-    reconstruction, gene_cn, _ = copy_vae.decoder(z)
+    # split into batch to avoid OOM
+    input_dataset = tf.data.Dataset.from_tensor_slices(adata.X)
+    input_dataset = input_dataset.batch(batch_size)
+    for step, x in enumerate(input_dataset):
+        if step == 0:
+            z_mean, _, z = copy_vae.encoder.predict(x)
+            reconstruction, gene_cn, _ = copy_vae.decoder(z)
+        else:
+            z_mean_old = z_mean
+            gene_cn_old = gene_cn
+            z_mean, _, z = copy_vae.encoder.predict(x)
+            reconstruction, gene_cn, _ = copy_vae.decoder(z)
+            z_mean = tf.concat([z_mean_old, z_mean], 0)
+            gene_cn = tf.concat([gene_cn_old, gene_cn], 0)
 
     adata.obsm['latent'] = z_mean
     #draw_umap(adata, 'latent', '_latent')
-    # draw_heatmap(gene_cn,'gene_copies')
+    #draw_heatmap(gene_cn,'gene_copies')
     with open('copy.npy', 'wb') as f:
         np.save(f, gene_cn)
 
@@ -63,7 +82,7 @@ def run_pipeline(umi_counts):
     tmp_arr = np.split(gene_cn, bin_number, axis=1)
     tmp_arr = np.stack(tmp_arr, axis=1)
     bin_cn = np.median(tmp_arr, axis=2)
-    # draw_heatmap(bin_cn,'bin_copies')
+    #draw_heatmap(bin_cn,'bin_copies')
     with open('median_cp.npy', 'wb') as f:
         np.save(f, bin_cn)
 
@@ -90,8 +109,9 @@ def run_pipeline(umi_counts):
     t_clone.generate_profile()
     clone_seg = t_clone.segment_cn
     #print(clone_seg)
-    with open('clone.npy', 'wb') as f:
-        np.save(f, clone_seg)
+    clone_gene_cn = np.repeat(clone_seg, bin_size)
+    with open('clone_gene_cn.npy', 'wb') as f:
+        np.save(f, clone_gene_cn)
 
     # generate consensus segment profile
     bp_arr = t_clone.breakpoints
