@@ -29,8 +29,44 @@ def validate_params(mu, theta):
     return True
 
 
+def nb_pos(y_true, y_pred, eps=1e-8):
+    """ Negative binomial reconstruction loss
+
+    Args:
+        y_true: true values
+        y_pred: predicted values
+        eps: numerical stability constant
+    Parameters:
+        x: Data
+        mu: mean of the negative binomial (positive (batch x vars)
+        theta: inverse dispersion parameter (positive) (batch x vars)
+    Returns:
+        loss (log likelihood scalar)
+    """
+    x = y_true
+    mu = y_pred[0]
+    theta = y_pred[1]
+
+    arg_validated = validate_params(mu, theta)
+    if not arg_validated:
+        print("invalid arguments for zinb!")
+        return None
+
+    log_theta_mu_eps = tf.math.log(theta + mu + eps)
+
+    res = (
+        theta * (tf.math.log(theta + eps) - log_theta_mu_eps)
+        + x * (tf.math.log(mu + eps) - log_theta_mu_eps)
+        + tf.math.lgamma(x + theta)
+        - tf.math.lgamma(theta)
+        - tf.math.lgamma(x + 1)
+    )
+
+    return tf.math.reduce_sum(res, axis=-1)
+
+
 def zinb_pos(y_true, y_pred, eps=1e-8):
-    """ zero-inflated negative binomial reconstruction loss
+    """ Zero-inflated negative binomial reconstruction loss
 
     Args:
         y_true: true values
@@ -44,7 +80,7 @@ def zinb_pos(y_true, y_pred, eps=1e-8):
         #### π in [0,1] ####
         pi = log(π/(1-π)) = log π - log(1-π)
     Returns:
-        loss
+        loss (log likelihood scalar)
     """
 
     x = y_true
@@ -371,9 +407,10 @@ class DecoderCategorical(keras.models.Model):
             rho = getattr(self, "rho%i" % i)(x)
             rho_list.append(rho)
         rho_list = tf.nn.softmax(rho_list, axis=0)
-        copy, cat_prob = self.sampling(rho_list)
+        copy, cat_prob = self.sampling(rho_list, bin_size=self.bin_size)
 
         mu = self.k_layer(copy)
+        #return [mu, theta], copy, cat_prob
         return [mu, theta, pi], copy, cat_prob
 
 
@@ -453,6 +490,7 @@ def train_vae(vae, data, batch_size=128, epochs=10):
                     reconstructed = vae(x_batch_train)
                     # Compute reconstruction loss
                     recon = - zinb_pos(x_batch_train, reconstructed)
+                    #recon = - nb_pos(x_batch_train, reconstructed)
                     loss = recon + vae.losses  # sum(vae.losses)
 
             grads = tape.gradient(loss, vae.trainable_weights)
