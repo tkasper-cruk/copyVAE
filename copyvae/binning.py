@@ -4,11 +4,11 @@ import numpy as np
 import pandas as pd
 from os import path
 
-local_directory = path.dirname(path.abspath(__file__))
-gene_map = path.join(local_directory, '../data/mart_export.txt')
+LOCAL_DIRECTORY = path.dirname(path.abspath(__file__))
+GENE_MAP = path.join(LOCAL_DIRECTORY, '../data/mart_export.txt')
 
 
-def bin_genes_umi(umi_counts, bin_size, gene_metadata=gene_map):
+def bin_genes_umi(umi_counts, bin_size, gene_metadata=GENE_MAP):
     """ Gene binning for UMI counts
 
     Args:
