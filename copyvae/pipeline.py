@@ -6,11 +6,11 @@ import tensorflow as tf
 
 from copyvae.binning import bin_genes_umi
 from copyvae.preprocess import annotate_data
-from copyvae.vae import CopyVAE, train_vae
+from copyvae.vae import CopyVAE, train_vae, zinb_pos, nb_pos
 from copyvae.clustering import find_clones_gmm
 from copyvae.segmentation import bin_to_segment
 from copyvae.cell_tools import Clone
-#from copyvae.graphics import draw_umap, draw_heatmap, plot_breakpoints
+from copyvae.graphics import draw_umap, draw_heatmap, plot_breakpoints
 
 
 def run_pipeline(umi_counts):
@@ -35,8 +35,10 @@ def run_pipeline(umi_counts):
     epochs = 250
 
     # assign genes to bins
-    binned_genes, chroms = bin_genes_umi(umi_counts, bin_size)
-    adata = annotate_data(binned_genes)
+    binned_genes, chroms, abs_pos = bin_genes_umi(umi_counts, bin_size)
+    with open('abs.npy', 'wb') as f:
+        np.save(f, abs_pos)
+    adata = annotate_data(binned_genes, abs_pos)
     x_train = adata.X
 
     # train model
@@ -55,6 +57,25 @@ def run_pipeline(umi_counts):
             break
 
     # get copy number and latent output
+    """
+    z_mean, _, z = copy_vae.encoder.predict(x_train)
+    reconstruction, gene_cn, _ = copy_vae.decoder(z)
+  
+    recon = - zinb_pos(x_train, reconstruction)
+    #recon = - nb_pos(x_train[379:], reconstruction)
+    print("infer:")
+    print(np.sum(recon))
+
+    gtcp = np.load('gtcp.npy')
+    mu = model.decoder.k_layer(gtcp)
+    reconstruction[0] = mu
+
+    recon = - zinb_pos(x_train, reconstruction)
+    #recon = - nb_pos(x_train[379:], reconstruction)
+    print("gound truth:")
+    print(np.sum(recon))
+
+    """
     # split into batch to avoid OOM
     input_dataset = tf.data.Dataset.from_tensor_slices(adata.X)
     input_dataset = input_dataset.batch(batch_size)
@@ -119,7 +140,7 @@ def run_pipeline(umi_counts):
     with open('segments.npy', 'wb') as f:
         np.save(f, seg_profile)
     #draw_heatmap(seg_profile, "tumour_seg")
-
+    #"""
     return None
 
 

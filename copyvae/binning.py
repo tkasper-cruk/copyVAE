@@ -5,10 +5,60 @@ import pandas as pd
 from os import path
 
 LOCAL_DIRECTORY = path.dirname(path.abspath(__file__))
-GENE_MAP = path.join(LOCAL_DIRECTORY, '../data/mart_export.txt')
+GENE_META = path.join(LOCAL_DIRECTORY, '../data/mart_export.txt')
+
+CHR_BASE_PAIRS = np.array([
+    248956422,
+    242193529,
+    198295559,
+    190214555,
+    181538259,
+    170805979,
+    159345973,
+    145138636,
+    138394717,
+    133797422,
+    135086622,
+    133275309,
+    114364328,
+    107043718,
+    101991189,
+    90338345,
+    83257441,
+    80373285,
+    58617616,
+    64444167,
+    46709983,
+    50818468,
+    156040895])
 
 
-def bin_genes_umi(umi_counts, bin_size, gene_metadata=GENE_MAP):
+def build_gene_map(gene_metadata=GENE_META, chr_pos=CHR_BASE_PAIRS):
+    """ Build gene map from meta data
+
+    """
+    gene_info = pd.read_csv(gene_metadata, sep='\t')
+    gene_info.rename(columns={'Chromosome/scaffold name': 'chr'}, inplace=True)
+
+    gene_info.loc[gene_info.chr == 'X', 'chr'] = '23'
+    gene_info = gene_info[
+        gene_info['chr'].isin(
+            np.arange(1, 24).astype(str)
+        )
+    ]
+    gene_info = gene_info.copy()
+    gene_info.loc[:, 'chr'] = gene_info.chr.astype(int)
+    gene_info = gene_info.sort_values(by=['chr', 'Gene start (bp)'])
+
+    gene_map = gene_info[gene_info['Gene type']=='protein_coding']
+    gene_map['abspos']= gene_map['Gene start (bp)']
+    for i in range(len(chr_pos)):
+        gene_map.loc[gene_map['chr']==i+1, 'abspos'] += chr_pos[:i].sum()
+
+    return gene_map
+
+
+def bin_genes_umi(umi_counts, bin_size, gene_metadata=GENE_META):
     """ Gene binning for UMI counts
 
     Args:
@@ -23,29 +73,19 @@ def bin_genes_umi(umi_counts, bin_size, gene_metadata=GENE_MAP):
 
     umis = pd.read_csv(umi_counts, sep='\t', low_memory=False).reset_index()
     labels = umis.iloc[1, :]
-    gene_info = pd.read_csv(gene_metadata, sep='\t')
-    gene_info.rename(columns={'Chromosome/scaffold name': 'chr'}, inplace=True)
+
+    gene_map = build_gene_map(gene_metadata)
 
     # remove cell cycle genes
     umis = umis[~umis['index'].str.contains("HLA")]
     # gene name mapping
-    gene_merge = pd.merge(
-        umis, gene_info, right_on=['Gene name'],
+    sorted_gene = pd.merge(
+        umis, gene_map, right_on=['Gene name'],
         left_on=['index'], how='inner'
     )
-    gene_merge.loc[gene_merge.chr == 'X', 'chr'] = '23'
-    coding_gene = gene_merge[
-        gene_merge['chr'].isin(
-            np.arange(1, 24).astype(str)
-        )
-    ]
-    coding_gene = coding_gene.copy()
-    coding_gene.loc[:, 'chr'] = coding_gene.chr.astype(int)
-    sorted_gene = coding_gene.sort_values(by=['chr', 'Gene start (bp)'])
-    sorted_gene.to_csv('sorted_genes.csv', sep='\t')
 
     # remove non-expressed genes
-    ch = sorted_gene.iloc[:, 1:-6].astype('int32')
+    ch = sorted_gene.iloc[:, 1:-7].astype('int32')
     nonz = np.count_nonzero(ch, axis=1)
     sorted_gene['expressed'] = nonz
     expressed_gene = sorted_gene[sorted_gene['expressed'] > 0]
@@ -60,6 +100,8 @@ def bin_genes_umi(umi_counts, bin_size, gene_metadata=GENE_MAP):
                       )[:n].index
         expressed_gene = expressed_gene.drop(index=ind)
 
+    abs_pos = expressed_gene['abspos'].values
+
     # extract chromosome boundary
     bin_number = expressed_gene.chr.value_counts() // bin_size
     chrom_bound = bin_number.sort_index().cumsum()
@@ -70,7 +112,7 @@ def bin_genes_umi(umi_counts, bin_size, gene_metadata=GENE_MAP):
         chrom_list.append((start_p, end_p))
 
     # clean and add labels
-    expressed_gene.drop(columns=expressed_gene.columns[-7:],
+    expressed_gene.drop(columns=expressed_gene.columns[-8:],
                         axis=1, inplace=True)
     expressed_gene = pd.concat([expressed_gene.T, labels], axis=1)
     expressed_gene.rename(columns=expressed_gene.iloc[0], inplace=True)
@@ -78,4 +120,4 @@ def bin_genes_umi(umi_counts, bin_size, gene_metadata=GENE_MAP):
     expressed_gene = expressed_gene.sort_values(by='cluster.pred')
     expressed_gene.to_csv('bined_expressed_cell.csv', sep='\t')
 
-    return expressed_gene, chrom_list
+    return expressed_gene, chrom_list, abs_pos

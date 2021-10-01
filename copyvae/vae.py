@@ -49,7 +49,7 @@ def nb_pos(y_true, y_pred, eps=1e-8):
 
     arg_validated = validate_params(mu, theta)
     if not arg_validated:
-        print("invalid arguments for zinb!")
+        print("invalid arguments for negative binomial!")
         return None
 
     log_theta_mu_eps = tf.math.log(theta + mu + eps)

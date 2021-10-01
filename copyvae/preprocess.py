@@ -72,7 +72,7 @@ def load_data(file):
     return adata
 
 
-def annotate_data(data):
+def annotate_data(data, abs_pos):
     """ Pack data into anndata class
 
     Args:
@@ -85,6 +85,8 @@ def annotate_data(data):
     cell_types, labels = np.unique(clusters, return_inverse=True)
     data_df = data.iloc[:,:-1]
     adata = anndata.AnnData(X=data_df)
+    adata.var['name'] = data.columns.values[1:]
+    adata.var['abspos'] = abs_pos
     adata.obs["labels"] = labels
     adata.obs["cell_type"] = clusters
 
