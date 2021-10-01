@@ -4,8 +4,7 @@ import argparse
 import numpy as np
 import tensorflow as tf
 
-from copyvae.binning import bin_genes_umi
-from copyvae.preprocess import annotate_data
+from copyvae.binning import bin_genes_from_text, bin_genes_from_anndata
 from copyvae.vae import CopyVAE, train_vae, zinb_pos, nb_pos
 from copyvae.clustering import find_clones_gmm
 from copyvae.segmentation import bin_to_segment
@@ -13,11 +12,12 @@ from copyvae.cell_tools import Clone
 from copyvae.graphics import draw_umap, draw_heatmap, plot_breakpoints
 
 
-def run_pipeline(umi_counts):
+def run_pipeline(umi_counts, is_anndata=False):
     """ Main pipeline
 
     Args:
-        umi_counts: umi count text file
+        umi_counts: umi file
+        is_anndata: set to True when using 10X data
     Params:
         max_cp: maximum copy number
         bin_size: number of genes per bin
@@ -35,10 +35,12 @@ def run_pipeline(umi_counts):
     epochs = 250
 
     # assign genes to bins
-    binned_genes, chroms, abs_pos = bin_genes_umi(umi_counts, bin_size)
-    with open('abs.npy', 'wb') as f:
-        np.save(f, abs_pos)
-    adata = annotate_data(binned_genes, abs_pos)
+    if is_anndata:
+        adata, chroms= bin_genes_from_anndata(umi_counts, bin_size)
+    else:
+        adata, chroms= bin_genes_from_text(umi_counts, bin_size)
+    
+    
     x_train = adata.X
 
     # train model
