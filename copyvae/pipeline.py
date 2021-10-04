@@ -37,23 +37,25 @@ def run_pipeline(umi_counts, is_anndata=False):
     # assign genes to bins
     if is_anndata:
         adata, chroms= bin_genes_from_anndata(umi_counts, bin_size)
+        # TODO add cell_type for 10X data
+        adata.obs["cell_type"] = 1
+        x_train = adata.X.todense()
     else:
         adata, chroms= bin_genes_from_text(umi_counts, bin_size)
-    
-    
-    x_train = adata.X
+        x_train = adata.X
 
     # train model
-    model = CopyVAE(x_train.shape[-1],
+    # TODO remove try except after debugging vae training
+    for attempt in range(5):
+        try:
+            model = CopyVAE(x_train.shape[-1],
                     intermediate_dim,
                     latent_dim,
                     bin_size=bin_size,
                     max_cp=max_cp)
-    # TODO remove try except after debugging vae training
-    for attempt in range(5):
-        try:
             copy_vae = train_vae(model, x_train, batch_size, epochs)
         except BaseException:
+            tf.keras.backend.clear_session()
             continue
         else:
             break
@@ -79,7 +81,7 @@ def run_pipeline(umi_counts, is_anndata=False):
 
     """
     # split into batch to avoid OOM
-    input_dataset = tf.data.Dataset.from_tensor_slices(adata.X)
+    input_dataset = tf.data.Dataset.from_tensor_slices(x_train)
     input_dataset = input_dataset.batch(batch_size)
     for step, x in enumerate(input_dataset):
         if step == 0:
@@ -110,7 +112,7 @@ def run_pipeline(umi_counts, is_anndata=False):
         np.save(f, bin_cn)
 
     # seperate tumour cells from normal
-    tumour_mask = find_clones_gmm(z_mean, adata.X)
+    tumour_mask = find_clones_gmm(z_mean, x_train)
     cells = bin_cn[tumour_mask]
 
     clone_size = np.shape(cells)[0]
@@ -149,7 +151,7 @@ def run_pipeline(umi_counts, is_anndata=False):
 def main():
 
     parser = argparse.ArgumentParser()
-    parser.add_argument('input', type=argparse.FileType('r'), help="input UMI")
+    parser.add_argument('input', help="input UMI")
     parser.add_argument('-g', '--gpu', type=int, help="GPU id")
 
     args = parser.parse_args()
