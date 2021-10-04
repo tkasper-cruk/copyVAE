@@ -52,7 +52,7 @@ def build_gene_map(gene_metadata=GENE_META, chr_pos=CHR_BASE_PAIRS):
     gene_info.loc[:, 'chr'] = gene_info.chr.astype(int)
     gene_info = gene_info.sort_values(by=['chr', 'Gene start (bp)'])
 
-    gene_map = gene_info[gene_info['Gene type']=='protein_coding']
+    gene_map = gene_info[gene_info['Gene type']=='protein_coding'].copy()
     #gene_map = gene_info
     gene_map['abspos'] = gene_map['Gene start (bp)']
     for i in range(len(chr_pos)):
@@ -157,6 +157,7 @@ def bin_genes_from_anndata(file, bin_size, gene_metadata=GENE_META):
     adata_clean = adata[:, adata.var.gene_ids.isin(gene_df.gene_ids.values)]
 
     # add position in genome
+    adata_clean.var['chr'] = gene_df['chr'].values
     adata_clean.var['abspos'] = gene_df['abspos'].values
     with open('abs.npy', 'wb') as f:
         np.save(f, gene_df['abspos'].values)
