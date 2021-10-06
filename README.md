@@ -12,5 +12,6 @@ For installation, simply download this repo and run the following commands. **Py
 The following command will run the copy number profiling pipeline.
 
     copyvae path/to/UMI_file
+Add flag `-a` for 10X data
 
 See [Wiki](https://github.com/Lamicc/copyVAE/wiki) for more details.
