@@ -12,7 +12,7 @@ from copyvae.cell_tools import Clone
 from copyvae.graphics import draw_umap, draw_heatmap, plot_breakpoints
 
 
-def run_pipeline(umi_counts, is_anndata=False):
+def run_pipeline(umi_counts, is_anndata):
     """ Main pipeline
 
     Args:
@@ -61,25 +61,6 @@ def run_pipeline(umi_counts, is_anndata=False):
             break
 
     # get copy number and latent output
-    """
-    z_mean, _, z = copy_vae.encoder.predict(x_train)
-    reconstruction, gene_cn, _ = copy_vae.decoder(z)
-  
-    recon = - zinb_pos(x_train, reconstruction)
-    #recon = - nb_pos(x_train[379:], reconstruction)
-    print("infer:")
-    print(np.sum(recon))
-
-    gtcp = np.load('gtcp.npy')
-    mu = model.decoder.k_layer(gtcp)
-    reconstruction[0] = mu
-
-    recon = - zinb_pos(x_train, reconstruction)
-    #recon = - nb_pos(x_train[379:], reconstruction)
-    print("gound truth:")
-    print(np.sum(recon))
-
-    """
     # split into batch to avoid OOM
     input_dataset = tf.data.Dataset.from_tensor_slices(x_train)
     input_dataset = input_dataset.batch(batch_size)
@@ -97,6 +78,8 @@ def run_pipeline(umi_counts, is_anndata=False):
 
     adata.obsm['latent'] = z_mean
     #draw_umap(adata, 'latent', '_latent')
+    adata.obsm['copy_number'] = gene_cn
+    #draw_umap(adata, 'copy_number', '_copy_number')
     #draw_heatmap(gene_cn,'gene_copies')
     with open('copy.npy', 'wb') as f:
         np.save(f, gene_cn)
@@ -144,7 +127,6 @@ def run_pipeline(umi_counts, is_anndata=False):
     with open('segments.npy', 'wb') as f:
         np.save(f, seg_profile)
     #draw_heatmap(seg_profile, "tumour_seg")
-    #"""
     return None
 
 
@@ -152,10 +134,12 @@ def main():
 
     parser = argparse.ArgumentParser()
     parser.add_argument('input', help="input UMI")
+    parser.add_argument('-a', nargs='?', const=True, default=False, help="flag for 10X data")
     parser.add_argument('-g', '--gpu', type=int, help="GPU id")
 
     args = parser.parse_args()
     file = args.input
+    is_10x = args.a
 
     if args.gpu:
         dvc = '/device:GPU:{}'.format(args.gpu)
@@ -163,7 +147,7 @@ def main():
         dvc = '/device:GPU:0'
 
     with tf.device(dvc):
-        run_pipeline(file)
+        run_pipeline(file, is_anndata=is_10x)
 
 
 if __name__ == "__main__":
