@@ -145,7 +145,13 @@ def bin_genes_from_anndata(file, bin_size, gene_metadata=GENE_META):
     """
 
     adata = sc.read_10x_h5(file)
+    #adata = sc.read(file)
     gene_map = build_gene_map(gene_metadata)
+
+    # normalize UMI counts
+    sc.pp.filter_cells(adata, min_genes=1000)
+    sc.pp.normalize_total(adata, inplace=True)
+    adata.X = np.round(adata.X)
 
     # extract genes
     gene_df = pd.merge(
@@ -159,8 +165,6 @@ def bin_genes_from_anndata(file, bin_size, gene_metadata=GENE_META):
     # add position in genome
     adata_clean.var['chr'] = gene_df['chr'].values
     adata_clean.var['abspos'] = gene_df['abspos'].values
-    with open('abs.npy', 'wb') as f:
-        np.save(f, gene_df['abspos'].values)
 
     # filter out low expressed genes
     sc.pp.filter_genes(adata_clean, min_cells=100)
@@ -174,6 +178,8 @@ def bin_genes_from_anndata(file, bin_size, gene_metadata=GENE_META):
         ind_list.append(ind)
     data = adata_clean[:, ~adata_clean.var.index.isin(
                             np.concatenate(ind_list))]
+    with open('abs.npy', 'wb') as f:
+        np.save(f, data.var['abspos'].values)
 
     # find chromosome boundry bins
     bin_number = adata_clean.var['chr'].value_counts() // bin_size
