@@ -1,7 +1,9 @@
 numpy
 pandas
+scipy
 anndata
 scanpy
 tensorflow-probability
+pybiomart
 matplotlib
 seaborn

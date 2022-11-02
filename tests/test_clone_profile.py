@@ -4,6 +4,8 @@ import argparse
 import pandas as pd
 import numpy as np
 import matplotlib.pylab as plt
+from scipy.spatial import distance
+from scipy.stats import pearsonr
 from copyvae.binning import CHR_BASE_PAIRS
 
 
@@ -44,15 +46,18 @@ def test_dcis_inference(clone_profile, abs_position, gt_profile):
         abs_position: absolute gene position in the genome
         gt_profile: ground truth clone profile
     Returns:
-        distance: Euclidean distance
+        distance1: Euclidean distance
+        distance2: Cosine similarity
+        distance3: Pearson correlation coefficient
+        distance4: Manhattan distance
     """
 
     # process groud truth
     gt = pd.read_csv(gt_profile, sep='\t')
     gt['abspos'] = gt['abspos'].astype('int')
 
-    #gt['copy'] = round(2**gt['med.DNA']*2)
-    gt['copy'] = 2**gt['med.DNA'] * 2
+    gt['copy'] = gt['med.DNA']
+    #gt['copy'] = 2**gt['med.DNA'] * 2
 
     # estimate copy of positions in ground truth
     clone = {'abspos': abs_position, 'cp_inf': clone_profile}
@@ -62,17 +67,26 @@ def test_dcis_inference(clone_profile, abs_position, gt_profile):
         df.sort_values('abspos'),
         on='abspos')
 
-    distance = np.linalg.norm(compdf['copy'].values - compdf['cp_inf'].values)
+    #distance1 = np.linalg.norm(compdf['copy'].values - compdf['cp_inf'].values)
+    distance1 = distance.euclidean(compdf['copy'].values, compdf['cp_inf'].values)
+    distance2 = distance.cosine(compdf['copy'].values, compdf['cp_inf'].values)
+    distance3 = pearsonr(compdf['copy'].values, compdf['cp_inf'].values)
+    distance4 = distance.cityblock(compdf['copy'].values, compdf['cp_inf'].values)
 
-    compdf.loc[compdf['copy'] > 6, 'copy'] = 6.0
+    print('Euclidean distance: {}'.format(distance1))
+    print('Cosine distance: {}'.format(distance2))
+    print('Pearson correlation: {}'.format(distance3[0]))
+    print('Manhattan distance: {}'.format(distance4))
+
     gtcp = compdf['copy'].values
     infcp = compdf['cp_inf'].values
     plt.figure(figsize=(17, 5), dpi=120)
-    plt.plot(infcp)
-    plt.plot(gtcp)
+    plt.plot(infcp,label='inference')
+    plt.plot(gtcp, label='GT')
+    plt.legend()
     plt.savefig('dcis1.png')
 
-    return distance
+    return distance1, distance2, distance3, distance4
 
 
 def main():
@@ -87,9 +101,7 @@ def main():
     abs_pos = np.load(args.abs)
     gt_profile = args.gt
 
-    dis = test_dcis_inference(clone_profile, abs_pos, gt_profile)
-    print('Euclidean:')
-    print(dis)
+    d1, d2, d3, d4 = test_dcis_inference(clone_profile, abs_pos, gt_profile)
 
 
 if __name__ == "__main__":

@@ -3,12 +3,15 @@
 import argparse
 import numpy as np
 import tensorflow as tf
+import anndata
+from tf.keras.optimizers import Adam
 
-from copyvae.binning import bin_genes_from_text, bin_genes_from_anndata
-from copyvae.vae import CopyVAE, train_vae, zinb_pos, nb_pos
+#from copyvae.preprocess import load_copykat_data
+#from copyvae.binning import bin_genes_from_text, bin_genes_from_anndata
+from copyvae.vae import CopyVAE
 from copyvae.clustering import find_clones_gmm
-from copyvae.segmentation import bin_to_segment
-from copyvae.cell_tools import Clone
+from copyvae.segmentation import generate_clone_profile
+#from copyvae.cell_tools import Clone
 from copyvae.graphics import draw_umap, draw_heatmap, plot_breakpoints
 
 
@@ -27,106 +30,89 @@ def run_pipeline(umi_counts, is_anndata):
         epochs = number of epochs training
     """
 
-    max_cp = 6
     bin_size = 25
+    max_cp = 15
     intermediate_dim = 128
-    latent_dim = 10
+    latent_dim = 15
     batch_size = 128
-    epochs = 250
+    epochs = 200
 
-    # assign genes to bins
-    if is_anndata:
-        adata, chroms= bin_genes_from_anndata(umi_counts, bin_size)
-        # TODO add cell_type for 10X data
-        adata.obs["cell_type"] = 1
-        x_train = adata.X.todense()
-    else:
-        adata, chroms= bin_genes_from_text(umi_counts, bin_size)
-        x_train = adata.X
+    #data = load_copykat_data(umi_counts)
+    #sc.pp.highly_variable_genes(data,n_top_genes=5000, flavor='seurat_v3', subset=True)
+    data = anndata.read_h5ad(umi_counts)
+    try: 
+        x = data.X.todense()
+    except AttributeError:
+        x = data.X
+    x_bin = x.reshape(-1,bin_size).mean(axis=1).reshape(x.shape[0],-1)
 
-    # train model
-    # TODO remove try except after debugging vae training
-    for attempt in range(5):
-        try:
-            model = CopyVAE(x_train.shape[-1],
-                    intermediate_dim,
-                    latent_dim,
-                    bin_size=bin_size,
-                    max_cp=max_cp)
-            copy_vae = train_vae(model, x_train, batch_size, epochs)
-        except BaseException:
-            tf.keras.backend.clear_session()
-            continue
-        else:
-            break
+    # train model step 1
+    train_dataset1 = tf.data.Dataset.from_tensor_slices(x_bin)
+    train_dataset1 = train_dataset1.shuffle(buffer_size=1024).batch(batch_size)
+    
+    clus_model = CopyVAE(x_bin.shape[-1],
+                            intermediate_dim,
+                            latent_dim,
+                            max_cp)
+    clus_model.compile(optimizer=Adam(learning_rate=1e-3,epsilon=0.01))
+    clus_model.fit(train_dataset1, epochs)
+    
+    # clustering
+    m,v,z = clus_model.z_encoder(x_bin)
+    pred_label = find_clones_gmm(z, n_clones=2)
+    data.obs["pred"] = pred_label.astype('str')
 
-    # get copy number and latent output
-    # split into batch to avoid OOM
-    input_dataset = tf.data.Dataset.from_tensor_slices(x_train)
-    input_dataset = input_dataset.batch(batch_size)
-    for step, x in enumerate(input_dataset):
-        if step == 0:
-            z_mean, _, z = copy_vae.encoder.predict(x)
-            reconstruction, gene_cn, _ = copy_vae.decoder(z)
-        else:
-            z_mean_old = z_mean
-            gene_cn_old = gene_cn
-            z_mean, _, z = copy_vae.encoder.predict(x)
-            reconstruction, gene_cn, _ = copy_vae.decoder(z)
-            z_mean = tf.concat([z_mean_old, z_mean], 0)
-            gene_cn = tf.concat([gene_cn_old, gene_cn], 0)
+    # find normal cells
+    norm_mask = (pred_label).astype(bool)
+    clone_masked = x_bin[mask]
+    clone_unmasked = x_bin[~mask]
+    if clone_masked.mean(axis=1).std() > clone_unmasked.mean(axis=1).std():
+        norm_mask = (1 - pred_label).astype(bool)
+    confident_norm_x = x_bin[norm_mask]
+    
+    # normalise according to baseline
+    baseline = np.median(confident_norm_x, axis=0)
+    baseline[baseline == 0] = 1
+    norm_x = x_bin / baseline * 2
+    norm_x[norm_mask] = 2.
 
-    adata.obsm['latent'] = z_mean
-    #draw_umap(adata, 'latent', '_latent')
-    adata.obsm['copy_number'] = gene_cn
-    #draw_umap(adata, 'copy_number', '_copy_number')
-    #draw_heatmap(gene_cn,'gene_copies')
+    # train model step 2
+    train_dataset2 = tf.data.Dataset.from_tensor_slices(norm_x)
+    train_dataset2 = train_dataset2.shuffle(buffer_size=1024).batch(batch_size)
+
+    copyvae = CopyVAE(norm_x.shape[-1],
+                            intermediate_dim,
+                            latent_dim,
+                            max_cp)
+    copyvae.compile(optimizer=Adam(learning_rate=1e-3,epsilon=0.01))
+    copyvae.fit(train_dataset2, epochs)
+
+    # get copy number profile
+    _, _, latent_z = copyvae.z_encoder(norm_x)
+    copy_bin = copyvae.encoder(latent_z)
+
+    data.obsm['latent'] = z
+    #draw_umap(data, 'latent', '_latent')
+    data.obsm['copy_number'] = copy_bin
+    #draw_umap(data, 'copy_number', '_copy_number')
+    #draw_heatmap(copy_bin,'bin_copies')
     with open('copy.npy', 'wb') as f:
-        np.save(f, gene_cn)
-
-    # compute bin copy number
-    gn = x_train.shape[1]
-    bin_number = gn // bin_size
-    tmp_arr = np.split(gene_cn, bin_number, axis=1)
-    tmp_arr = np.stack(tmp_arr, axis=1)
-    bin_cn = np.median(tmp_arr, axis=2)
-    #draw_heatmap(bin_cn,'bin_copies')
-    with open('median_cp.npy', 'wb') as f:
-        np.save(f, bin_cn)
+        np.save(f, copy_bin)
 
     # seperate tumour cells from normal
-    tumour_mask = find_clones_gmm(z_mean, x_train)
-    cells = bin_cn[tumour_mask]
-
-    clone_size = np.shape(cells)[0]
-    t_clone = Clone(1,
-                    clone_size,
-                    bin_size,
-                    cell_gene_cn=gene_cn[tumour_mask],
-                    cell_bin_cn=bin_cn[tumour_mask],
-                    chrom_bound=chroms
-                    )
-
-    # call clone breakpoints
-    t_clone.call_breakpoints()
-    #print(t_clone.breakpoints)
-    #cp_arr = np.mean(cells, axis=0)
-    #plot_breakpoints(cp_arr, t_clone.breakpoints, 'bp_plot')
-
+    nor_cp = np.median(copy_bin[norm_mask],axis=0)
+    nor_cp = np.repeat(nor_cp,25)
+    tum_cp = np.median(copy_bin[~norm_mask],axis=0)
+    tum_cp = np.repeat(tum_cp,25)
+    
     # generate clone profile
-    t_clone.generate_profile()
-    clone_seg = t_clone.segment_cn
-    #print(clone_seg)
-    clone_gene_cn = np.repeat(clone_seg, bin_size)
-    with open('clone_gene_cn.npy', 'wb') as f:
-        np.save(f, clone_gene_cn)
+    chrom_list = np.load('chorm_list.npy')
+    clone_cn = copy_bin[~norm_mask]
+    segment_cn, breakpoints = generate_clone_profile(clone_cn, chrom_list, eta=6)
+    final_prof = np.repeat(segment_cn, bin_size)
+    with open('clone_profile.npy', 'wb') as f:
+        np.save(f, final_prof)
 
-    # generate consensus segment profile
-    bp_arr = t_clone.breakpoints
-    seg_profile = bin_to_segment(bin_cn, bp_arr)
-    with open('segments.npy', 'wb') as f:
-        np.save(f, seg_profile)
-    #draw_heatmap(seg_profile, "tumour_seg")
     return None
 
 

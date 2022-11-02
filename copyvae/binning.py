@@ -3,11 +3,9 @@
 import numpy as np
 import pandas as pd
 import scanpy as sc
-from os import path
+import pybiomart
 from copyvae.preprocess import annotate_data
 
-LOCAL_DIRECTORY = path.dirname(path.abspath(__file__))
-GENE_META = path.join(LOCAL_DIRECTORY, '../data/mart_export.txt')
 
 CHR_BASE_PAIRS = np.array([
     248956422,
@@ -35,11 +33,21 @@ CHR_BASE_PAIRS = np.array([
     156040895])
 
 
-def build_gene_map(gene_metadata=GENE_META, chr_pos=CHR_BASE_PAIRS):
+def build_gene_map(chr_pos=CHR_BASE_PAIRS):
     """ Build gene map from meta data
 
     """
-    gene_info = pd.read_csv(gene_metadata, sep='\t')
+    server = pybiomart.Server(host='http://www.ensembl.org')
+    mart = server['ENSEMBL_MART_ENSEMBL']
+    dataset = mart['hsapiens_gene_ensembl']
+    attributes = [#'ensembl_transcript_id',
+                  'external_gene_name', 
+                  'ensembl_gene_id',
+                  'chromosome_name',
+                  'start_position',
+                  'end_position']
+    
+    gene_info = dataset.query(attributes= attributes)
     gene_info.rename(columns={'Chromosome/scaffold name': 'chr'}, inplace=True)
 
     gene_info.loc[gene_info.chr == 'X', 'chr'] = '23'
@@ -52,8 +60,8 @@ def build_gene_map(gene_metadata=GENE_META, chr_pos=CHR_BASE_PAIRS):
     gene_info.loc[:, 'chr'] = gene_info.chr.astype(int)
     gene_info = gene_info.sort_values(by=['chr', 'Gene start (bp)'])
 
-    gene_map = gene_info[gene_info['Gene type']=='protein_coding'].copy()
-    #gene_map = gene_info
+    #gene_map = gene_info[gene_info['Gene type']=='protein_coding'].copy()
+    gene_map = gene_info
     gene_map['abspos'] = gene_map['Gene start (bp)']
     for i in range(len(chr_pos)):
         gene_map.loc[gene_map['chr'] == i + 1, 'abspos'] += chr_pos[:i].sum()
@@ -61,13 +69,12 @@ def build_gene_map(gene_metadata=GENE_META, chr_pos=CHR_BASE_PAIRS):
     return gene_map
 
 
-def bin_genes_from_text(umi_counts, bin_size, gene_metadata=GENE_META):
+def bin_genes_from_text(umi_counts, bin_size):
     """ Gene binning for UMI counts from text file
 
     Args:
         umi_counts: text file
         bin_size: number of genes per bin (int)
-        gene_metadata: gene name map
 
     Returns:
         data: (anndata object) high expressed gene counts,
@@ -78,7 +85,7 @@ def bin_genes_from_text(umi_counts, bin_size, gene_metadata=GENE_META):
     umis = pd.read_csv(umi_counts, sep='\t', low_memory=False).reset_index()
     labels = umis.iloc[1, :]
 
-    gene_map = build_gene_map(gene_metadata)
+    gene_map = build_gene_map()
 
     # remove cell cycle genes
     umis = umis[~umis['index'].str.contains("HLA")]
@@ -87,7 +94,7 @@ def bin_genes_from_text(umi_counts, bin_size, gene_metadata=GENE_META):
         umis, gene_map, right_on=['Gene name'],
         left_on=['index'], how='inner'
     )
-
+    sorted_gene = sorted_gene.sort_values(by=['abspos'])
     # remove non-expressed genes
     ch = sorted_gene.iloc[:, 1:-7].astype('int32')
     nonz = np.count_nonzero(ch, axis=1)
@@ -118,19 +125,19 @@ def bin_genes_from_text(umi_counts, bin_size, gene_metadata=GENE_META):
         chrom_list.append((start_p, end_p))
 
     # clean and add labels
-    expressed_gene.drop(columns=expressed_gene.columns[-8:],
+    expressed_gene.drop(columns=expressed_gene.columns[-7:],
                         axis=1, inplace=True)
     expressed_gene = pd.concat([expressed_gene.T, labels], axis=1)
     expressed_gene.rename(columns=expressed_gene.iloc[0], inplace=True)
     expressed_gene.drop(expressed_gene.index[0], inplace=True)
-    expressed_gene = expressed_gene.sort_values(by='cluster.pred')
-    expressed_gene.to_csv('bined_expressed_cell.csv', sep='\t')
+    #expressed_gene = expressed_gene.sort_values(by='cluster.pred')
+    #expressed_gene.to_csv('bined_expressed_cell.csv', sep='\t')
     data = annotate_data(expressed_gene, abs_pos)
 
     return data, chrom_list
 
 
-def bin_genes_from_anndata(file, bin_size, gene_metadata=GENE_META):
+def bin_genes_from_anndata(file, bin_size):
     """ Gene binning for UMI counts for 10X data
 
     Args:
@@ -146,7 +153,7 @@ def bin_genes_from_anndata(file, bin_size, gene_metadata=GENE_META):
 
     adata = sc.read_10x_h5(file)
     #adata = sc.read(file)
-    gene_map = build_gene_map(gene_metadata)
+    gene_map = build_gene_map()
 
     # normalize UMI counts
     sc.pp.filter_cells(adata, min_genes=1000)
