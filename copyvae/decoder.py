@@ -56,6 +56,7 @@ class CNDecoder(keras.models.Model):
             self,
             original_dim,
             intermediate_dim,
+            n_layer=2,
             name="cndecoder",
             **kwargs):
         super(CNDecoder, self).__init__(name=name, **kwargs)
@@ -75,10 +76,8 @@ class CNDecoder(keras.models.Model):
     def call(self, inputs):
         x = inputs[0]
         px = inputs[1]
-        lib = inputs[2]
 
-        px_rate = lib * x
         px_r = self.px_r_decoder(px)
         px_r = tf.math.exp(px_r)
 
-        return [px_rate, px_r], x
+        return [x, px_r]

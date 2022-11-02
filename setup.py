@@ -15,8 +15,8 @@ setup(
     name = 'copyVAE',
     version = VERSION,
     description = DESCRIPTION,
-    url = 'https://github.com/Lamicc/copyVAE',
-    author = 'Chen & Bonet & Kurt',
+    url = 'https://github.com/mandichen/copyVAE',
+    author = 'Chen & Kurt & Bonet',
     packages = find_packages(include = ['copyvae', 'copyvae.*']),
     entry_points = {
         'console_scripts': [

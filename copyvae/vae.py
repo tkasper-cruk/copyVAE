@@ -82,12 +82,7 @@ class CopyVAE(VAE):
         inputs_en = inputs
         z_mean, z_var, z = self.z_encoder(inputs_en)
         cp = self.encoder(z)
-        l = tf.expand_dims(
-                            tf.math.log(
-                                        tf.math.reduce_sum(inputs_en, axis=1)
-                                    ), 
-                        axis=1)
-        reconstructed, copy = self.decoder([cp,z,l])
+        reconstructed = self.decoder([cp,z])
 
         # Add KL divergence regularization loss.
         p_dis = tfp.distributions.Normal(

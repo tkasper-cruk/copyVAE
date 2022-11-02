@@ -4,7 +4,7 @@ import argparse
 import numpy as np
 import tensorflow as tf
 import anndata
-from tf.keras.optimizers import Adam
+from tensorflow.keras.optimizers import Adam
 
 #from copyvae.preprocess import load_copykat_data
 #from copyvae.binning import bin_genes_from_text, bin_genes_from_anndata
@@ -55,7 +55,7 @@ def run_pipeline(umi_counts, is_anndata):
                             latent_dim,
                             max_cp)
     clus_model.compile(optimizer=Adam(learning_rate=1e-3,epsilon=0.01))
-    clus_model.fit(train_dataset1, epochs)
+    clus_model.fit(train_dataset1, epochs=epochs)
     
     # clustering
     m,v,z = clus_model.z_encoder(x_bin)
@@ -64,8 +64,8 @@ def run_pipeline(umi_counts, is_anndata):
 
     # find normal cells
     norm_mask = (pred_label).astype(bool)
-    clone_masked = x_bin[mask]
-    clone_unmasked = x_bin[~mask]
+    clone_masked = x_bin[norm_mask]
+    clone_unmasked = x_bin[~norm_mask]
     if clone_masked.mean(axis=1).std() > clone_unmasked.mean(axis=1).std():
         norm_mask = (1 - pred_label).astype(bool)
     confident_norm_x = x_bin[norm_mask]
@@ -85,7 +85,7 @@ def run_pipeline(umi_counts, is_anndata):
                             latent_dim,
                             max_cp)
     copyvae.compile(optimizer=Adam(learning_rate=1e-3,epsilon=0.01))
-    copyvae.fit(train_dataset2, epochs)
+    copyvae.fit(train_dataset2, epochs=epochs)
 
     # get copy number profile
     _, _, latent_z = copyvae.z_encoder(norm_x)
