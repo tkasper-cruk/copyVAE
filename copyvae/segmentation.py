@@ -4,11 +4,11 @@ import numpy as np
 from scipy.stats import poisson, norm
 
 
-def compute_ll_matrix(x_array):
+def compute_ll_matrix(x_array, max_cp=25):
     """ Compute log-likelihood for iid random variables """
 
     ll_list = []
-    for lam in range(1,25):
+    for lam in range(1,max_cp):
         #likelihood = poisson.logpmf(x_array, lam)
         likelihood = norm.logpdf(x_array, loc=lam, scale=0.5)
         ll = np.sum(likelihood, axis=0)

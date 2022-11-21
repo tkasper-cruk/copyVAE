@@ -151,22 +151,23 @@ def bin_genes_from_anndata(file, bin_size):
         chrom_list: list of chromosome boundry bins
     """
 
-    adata = sc.read_10x_h5(file)
+    adata = sc.read_h5ad(file)
     #adata = sc.read(file)
     gene_map = build_gene_map()
 
     # normalize UMI counts
     sc.pp.filter_cells(adata, min_genes=1000)
-    sc.pp.normalize_total(adata, inplace=True)
-    adata.X = np.round(adata.X)
+    #sc.pp.normalize_total(adata, inplace=True)
+    #adata.X = np.round(adata.X)
 
     # extract genes
     gene_df = pd.merge(
         adata.var,
         gene_map,
-        right_on=['Gene stable ID'],
+        right_on=['Gene name'],#['Gene stable ID'],
         left_on=['gene_ids'],
         how='right').dropna()
+    gene_df = gene_df.drop_duplicates(subset=['gene_ids'])
     adata_clean = adata[:, adata.var.gene_ids.isin(gene_df.gene_ids.values)]
 
     # add position in genome

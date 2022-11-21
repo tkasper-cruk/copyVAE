@@ -65,6 +65,7 @@ class CopyVAE(VAE):
             intermediate_dim=128,
             latent_dim=10,
             max_cp=25,
+            kl_weights=0.5,
             name="CopyVAE",
             **kwargs):
         super().__init__(original_dim,
@@ -72,15 +73,13 @@ class CopyVAE(VAE):
                          latent_dim,
                          name)
         self.max_cp = max_cp
-
+        self.kl_weights = kl_weights
         self.z_encoder = Encoder(latent_dim, intermediate_dim)
-
         self.encoder = CNEncoder(original_dim, max_cp=max_cp)
         self.decoder = CNDecoder(original_dim, intermediate_dim)
 
     def call(self, inputs):
-        inputs_en = inputs
-        z_mean, z_var, z = self.z_encoder(inputs_en)
+        z_mean, z_var, z = self.z_encoder(inputs)
         cp = self.encoder(z)
         reconstructed = self.decoder([cp,z])
 
@@ -96,7 +95,7 @@ class CopyVAE(VAE):
         kl_loss = tf.reduce_sum(
                         tfp.distributions.kl_divergence(
                             p_dis, q_dis),
-                    axis=1) * 0.5
+                    axis=1) * self.kl_weights
         self.add_loss(kl_loss)
 
         return reconstructed

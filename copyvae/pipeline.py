@@ -5,6 +5,7 @@ import numpy as np
 import tensorflow as tf
 import anndata
 from tensorflow.keras.optimizers import Adam
+from tqdm.keras import TqdmCallback
 
 #from copyvae.preprocess import load_copykat_data
 #from copyvae.binning import bin_genes_from_text, bin_genes_from_anndata
@@ -31,11 +32,11 @@ def run_pipeline(umi_counts, is_anndata):
     """
 
     bin_size = 25
-    max_cp = 15
+    max_cp = 25
     intermediate_dim = 128
-    latent_dim = 15
+    latent_dim = 15 #20
     batch_size = 128
-    epochs = 200
+    epochs = 200 #400
 
     #data = load_copykat_data(umi_counts)
     #sc.pp.highly_variable_genes(data,n_top_genes=5000, flavor='seurat_v3', subset=True)
@@ -55,7 +56,7 @@ def run_pipeline(umi_counts, is_anndata):
                             latent_dim,
                             max_cp)
     clus_model.compile(optimizer=Adam(learning_rate=1e-3,epsilon=0.01))
-    clus_model.fit(train_dataset1, epochs=epochs)
+    clus_model.fit(train_dataset1, epochs=epochs, verbose=0, callbacks=[TqdmCallback()])
     
     # clustering
     m,v,z = clus_model.z_encoder(x_bin)
@@ -71,9 +72,10 @@ def run_pipeline(umi_counts, is_anndata):
     confident_norm_x = x_bin[norm_mask]
     
     # normalise according to baseline
-    baseline = np.median(confident_norm_x, axis=0)
+    baseline = np.median(confident_norm_x, axis=0) #median --> mean, exclude lower .2
     baseline[baseline == 0] = 1
     norm_x = x_bin / baseline * 2
+    #norm_x[x_bin <= 0.2] = x_bin[x_bin <= 0.2]
     norm_x[norm_mask] = 2.
 
     # train model step 2
@@ -85,7 +87,7 @@ def run_pipeline(umi_counts, is_anndata):
                             latent_dim,
                             max_cp)
     copyvae.compile(optimizer=Adam(learning_rate=1e-3,epsilon=0.01))
-    copyvae.fit(train_dataset2, epochs=epochs)
+    copyvae.fit(train_dataset2, epochs=epochs, verbose=0, callbacks=[TqdmCallback()])
 
     # get copy number profile
     _, _, latent_z = copyvae.z_encoder(norm_x)
@@ -101,17 +103,36 @@ def run_pipeline(umi_counts, is_anndata):
 
     # seperate tumour cells from normal
     nor_cp = np.median(copy_bin[norm_mask],axis=0)
-    nor_cp = np.repeat(nor_cp,25)
+    nor_cp = np.repeat(nor_cp, bin_size)
     tum_cp = np.median(copy_bin[~norm_mask],axis=0)
-    tum_cp = np.repeat(tum_cp,25)
+    tum_cp = np.repeat(tum_cp, bin_size)
     
     # generate clone profile
     chrom_list = np.load('chorm_list.npy')
     clone_cn = copy_bin[~norm_mask]
     segment_cn, breakpoints = generate_clone_profile(clone_cn, chrom_list, eta=6)
+    clone_arr = clone_cn.numpy()
+    st = 0
+    for i in range(1,len(breakpoints)):
+        ed = breakpoints[i]
+        m = np.mean(clone_arr[:,st:ed],axis=1)
+        clone_arr[:, st:ed] = np.repeat(
+                                        np.reshape(m,(1, m.size)).T,
+                                        ed-st,
+                                        axis=1)
+        st = ed
+    m = np.mean(clone_arr[:,st:],axis=1)
+    clone_arr[:, st:] = np.repeat(
+                                    np.reshape(m,(1, m.size)).T,
+                                    np.shape(clone_arr)[1]-st,
+                                    axis=1)
+    with open('single_cell_profile.npy', 'wb') as f:
+        np.save(f, clone_arr)
     final_prof = np.repeat(segment_cn, bin_size)
     with open('clone_profile.npy', 'wb') as f:
         np.save(f, final_prof)
+    with open('breakpoints.npy', 'wb') as f:
+        np.save(f, breakpoints)
 
     return None
 
