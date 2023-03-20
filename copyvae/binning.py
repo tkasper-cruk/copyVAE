@@ -151,31 +151,42 @@ def bin_genes_from_anndata(file, bin_size):
         chrom_list: list of chromosome boundry bins
     """
 
-    adata = sc.read_h5ad(file)
+    #adata = sc.read_h5ad(file)
+    adata=file
+    #adata.var.drop_duplicates(subset=['gene_ids'],inplace =True)
     #adata = sc.read(file)
     gene_map = build_gene_map()
 
     # normalize UMI counts
-    sc.pp.filter_cells(adata, min_genes=1000)
+    sc.pp.filter_genes(adata, min_cells=1)
     #sc.pp.normalize_total(adata, inplace=True)
     #adata.X = np.round(adata.X)
 
     # extract genes
-    gene_df = pd.merge(
+    """gene_df = pd.merge(
         adata.var,
         gene_map,
         right_on=['Gene name'],#['Gene stable ID'],
         left_on=['gene_ids'],
         how='right').dropna()
     gene_df = gene_df.drop_duplicates(subset=['gene_ids'])
-    adata_clean = adata[:, adata.var.gene_ids.isin(gene_df.gene_ids.values)]
+    adata_clean = adata[:, adata.var.gene_ids.isin(gene_df.gene_ids.values)].copy()
 
     # add position in genome
     adata_clean.var['chr'] = gene_df['chr'].values
-    adata_clean.var['abspos'] = gene_df['abspos'].values
+    adata_clean.var['abspos'] = gene_df['abspos'].values"""
+
+    map_chr = dict(gene_map[['Gene name', 'chr']].values)
+    adata.var['chr'] = adata.var.gene_ids.map(map_chr)
+    map_abs = dict(gene_map[['Gene name', 'abspos']].values)
+    adata.var['abspos'] = adata.var.gene_ids.map(map_abs)
+    adata_clean = adata[:, (adata.var.chr.notna() & adata.var.abspos.notna())].copy()
+    adata_clean.var['chr'] =  adata_clean.var.chr.astype('int')
+    adata_clean.var['abspos'] =  adata_clean.var.abspos.astype('int')
+    adata_clean = adata_clean[:, list(adata_clean.var.sort_values(by = 'abspos'.split()).index)].copy()
 
     # filter out low expressed genes
-    sc.pp.filter_genes(adata_clean, min_cells=100)
+    #sc.pp.filter_genes(adata_clean, min_cells=100)
     # remove exceeded genes
     n_exceeded = adata_clean.var['chr'].value_counts() % bin_size
     ind_list = []
@@ -186,8 +197,8 @@ def bin_genes_from_anndata(file, bin_size):
         ind_list.append(ind)
     data = adata_clean[:, ~adata_clean.var.index.isin(
                             np.concatenate(ind_list))]
-    with open('abs.npy', 'wb') as f:
-        np.save(f, data.var['abspos'].values)
+    #with open('abs.npy', 'wb') as f:
+    #    np.save(f, data.var['abspos'].values)
 
     # find chromosome boundry bins
     bin_number = adata_clean.var['chr'].value_counts() // bin_size

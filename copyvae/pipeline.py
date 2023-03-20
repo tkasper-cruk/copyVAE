@@ -32,7 +32,7 @@ def run_pipeline(umi_counts, is_anndata):
     """
 
     bin_size = 25
-    max_cp = 25
+    max_cp = 15
     intermediate_dim = 128
     latent_dim = 15 #20
     batch_size = 128
@@ -45,7 +45,7 @@ def run_pipeline(umi_counts, is_anndata):
         x = data.X.todense()
     except AttributeError:
         x = data.X
-    x_bin = x.reshape(-1,bin_size).mean(axis=1).reshape(x.shape[0],-1)
+    x_bin = x.reshape(-1,bin_size).copy().mean(axis=1).reshape(x.shape[0],-1)
 
     # train model step 1
     train_dataset1 = tf.data.Dataset.from_tensor_slices(x_bin)
@@ -64,12 +64,25 @@ def run_pipeline(umi_counts, is_anndata):
     data.obs["pred"] = pred_label.astype('str')
 
     # find normal cells
+    mask_list = []
+    min_std = np.inf
+    for clus in np.unique(pred_label):
+        mask = (pred_label==clus)
+        mask_list.append(mask)
+        clone_masked = x_bin[mask]
+        ex_std = clone_masked.std(axis=1).sum()
+        if ex_std < min_std:
+            norm_mask = mask
+            min_std = ex_std
+    confident_norm_x = x_bin[norm_mask]
+    """
     norm_mask = (pred_label).astype(bool)
     clone_masked = x_bin[norm_mask]
     clone_unmasked = x_bin[~norm_mask]
-    if clone_masked.mean(axis=1).std() > clone_unmasked.mean(axis=1).std():
+    if clone_masked.std(axis=1).sum() > clone_unmasked.std(axis=1).sum():
         norm_mask = (1 - pred_label).astype(bool)
     confident_norm_x = x_bin[norm_mask]
+    """
     
     # normalise according to baseline
     baseline = np.median(confident_norm_x, axis=0) #median --> mean, exclude lower .2
@@ -77,6 +90,7 @@ def run_pipeline(umi_counts, is_anndata):
     norm_x = x_bin / baseline * 2
     #norm_x[x_bin <= 0.2] = x_bin[x_bin <= 0.2]
     norm_x[norm_mask] = 2.
+    norm_x = tf.convert_to_tensor(norm_x,dtype='float')
 
     # train model step 2
     train_dataset2 = tf.data.Dataset.from_tensor_slices(norm_x)
@@ -108,7 +122,7 @@ def run_pipeline(umi_counts, is_anndata):
     tum_cp = np.repeat(tum_cp, bin_size)
     
     # generate clone profile
-    chrom_list = np.load('chorm_list.npy')
+    chrom_list = np.load('chrom_list.npy')
     clone_cn = copy_bin[~norm_mask]
     segment_cn, breakpoints = generate_clone_profile(clone_cn, chrom_list, eta=6)
     clone_arr = clone_cn.numpy()
