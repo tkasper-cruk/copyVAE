@@ -50,7 +50,7 @@ class Decoder(keras.models.Model):
 
 
 class CNDecoder(keras.models.Model):
-    """ second decoder """
+    """ copy number decoder """
 
     def __init__(
             self,

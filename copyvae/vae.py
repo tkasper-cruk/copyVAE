@@ -80,7 +80,7 @@ class CopyVAE(VAE):
 
     def call(self, inputs):
         z_mean, z_var, z = self.z_encoder(inputs)
-        cp = self.encoder(z)
+        cp = self.encoder([inputs,z])
         reconstructed = self.decoder([cp,z])
 
         # Add KL divergence regularization loss.

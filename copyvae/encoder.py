@@ -55,6 +55,9 @@ class CNEncoder(keras.models.Model):
                                         ])
 
     def call(self, inputs):
-        copy = self.mu_nn(inputs) * self.max_cp
+        copy = self.mu_nn(inputs[1]) * self.max_cp
+        copy_sum = tf.reduce_sum(copy, 1, keepdims=True)
+        pseudo_sum = tf.reduce_sum(inputs[0], 1, keepdims=True)
+        norm_copy = copy / copy_sum * pseudo_sum
 
-        return copy
+        return norm_copy

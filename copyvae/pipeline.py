@@ -7,21 +7,118 @@ import anndata
 from tensorflow.keras.optimizers import Adam
 from tqdm.keras import TqdmCallback
 
-#from copyvae.preprocess import load_copykat_data
-#from copyvae.binning import bin_genes_from_text, bin_genes_from_anndata
+from copyvae.preprocess import filter_and_normalize_data
+from copyvae.binning import build_gene_map, bin_genes_from_anndata
 from copyvae.vae import CopyVAE
-from copyvae.clustering import find_clones_gmm
+from copyvae.clustering import find_clones_kmeans, find_normal_cluster
 from copyvae.segmentation import generate_clone_profile
-#from copyvae.cell_tools import Clone
-from copyvae.graphics import draw_umap, draw_heatmap, plot_breakpoints
+#from copyvae.graphics import draw_umap, draw_heatmap, plot_breakpoints
+
+def train_neural_network(data, max_cp, intermediate_dim, latent_dim, batch_size, epochs, lr=1e-3, eps=0.01):
+    """
+    Train a neural network on the provided data.
+
+    Args:
+        data (np.ndarray): Data array with shape (n_samples, n_features).
+        intermediate_dim (int): Dimension of the intermediate layer in the neural network.
+        latent_dim (int): Dimension of the latent space in the neural network.
+        batch_size (int): Batch size for training.
+        epochs (int): Number of training epochs.
+        lr (float): learning rate.
+        eps (float): epsilon.
+
+    Returns:
+        tf.keras.models.Model: Trained neural network.
+    """
+    
+    # Create a TensorFlow dataset
+    train_dataset = tf.data.Dataset.from_tensor_slices(data)
+    train_dataset = train_dataset.shuffle(buffer_size=1024).batch(batch_size)
+
+    # Create the neural network model (replace with your model)
+    model = CopyVAE(data.shape[-1], intermediate_dim, latent_dim, max_cp)
+
+    # Compile the model with an optimizer
+    optimizer = Adam(learning_rate=lr, epsilon=eps)
+    model.compile(optimizer=optimizer)
+
+    # Fit the model with the training dataset
+    model.fit(train_dataset, epochs=epochs, verbose=0, callbacks=[TqdmCallback()])
+
+    return model
 
 
-def run_pipeline(umi_counts, is_anndata):
+def compute_pseudo_copy(x_bin, norm_mask):
+    """
+    Compute the pseudo-copy values for a cells.
+
+    Args:
+        x_bin (np.ndarray): Data array with shape (n_samples, n_features).
+        norm_mask (np.ndarray): Boolean mask for the normal cells
+
+    Returns:
+        pseudo_cp: Pseudo-copy values.
+    """
+
+    confident_norm_x = x_bin[norm_mask]
+    print(np.shape(confident_norm_x))
+    baseline = np.median(confident_norm_x, axis=0)
+    baseline[baseline == 0] = 1
+    pseudo_cp = x_bin / baseline * 2
+    #pseudo_cp[x_bin <= 0.2] = x_bin[x_bin <= 0.2]
+    pseudo_cp[norm_mask] = 2.
+
+    # Convert to TensorFlow tensor
+    pseudo_cp = tf.convert_to_tensor(pseudo_cp, dtype='float')
+
+    return pseudo_cp
+
+
+def perform_segmentation(clone_cn, chrom_list, eta):
+    """
+    Perform segmentation on copy number data.
+
+    Args:
+        clone_cn (tf.Tensor): Copy number data.
+        chrom_list (list): List of chromosome boundary bins.
+        eta (int): Eta value for segmentation.
+
+    Returns:
+        segment_cn
+        breakpoints
+        cell_cn : Single cell copy number profile.
+    """
+
+    # Generate clone profile and breakpoints
+    segment_cn, breakpoints = generate_clone_profile(clone_cn, chrom_list, eta)
+    
+    # Generate single cell copy profile
+    cell_cn = clone_cn.numpy()
+    st = 0
+    for i in range(1, len(breakpoints)):
+        ed = breakpoints[i]
+        m = np.mean(cell_cn[:, st:ed], axis=1)
+        cell_cn[:, st:ed] = np.repeat(
+                                        np.reshape(m, (1, m.size)).T,
+                                        ed - st,
+                                        axis=1)
+        st = ed
+
+    m = np.mean(cell_cn[:, st:], axis=1)
+    cell_cn[:, st:] = np.repeat(
+                                    np.reshape(m, (1, m.size)).T,
+                                    np.shape(cell_cn)[1] - st,
+                                    axis=1)
+
+    return segment_cn, breakpoints, cell_cn
+
+
+def run_pipeline(umi_counts, cell_cycle_gene_list):
     """ Main pipeline
 
     Args:
         umi_counts: umi file
-        is_anndata: set to True when using 10X data
+        cell_cycle_gene_list: cell cycle gene file
     Params:
         max_cp: maximum copy number
         bin_size: number of genes per bin
@@ -38,9 +135,24 @@ def run_pipeline(umi_counts, is_anndata):
     batch_size = 128
     epochs = 200 #400
 
-    #data = load_copykat_data(umi_counts)
-    #sc.pp.highly_variable_genes(data,n_top_genes=5000, flavor='seurat_v3', subset=True)
-    data = anndata.read_h5ad(umi_counts)
+    # preprocess data
+    feature_names=['gene_ids','gene_symbol']
+    adata = filter_and_normalize_data(umi_counts,
+                                      cell_cycle_gene_list,
+                                      alternative_feature_names=feature_names)
+    server_url = 'http://www.ensembl.org'
+    attributes = ['external_gene_name',
+                  'ensembl_gene_id',
+                  'chromosome_name',
+                  'start_position',
+                  'end_position']
+    gene_map = build_gene_map(server_url, attributes)
+    data, chrom_list = bin_genes_from_anndata(adata, bin_size, gene_map)
+    with open('chrom_list.npy', 'wb') as f:
+        np.save(f, chrom_list)
+    print('finished preprocess')
+
+    # train cluster NNs
     try: 
         x = data.X.todense()
     except AttributeError:
@@ -48,64 +160,37 @@ def run_pipeline(umi_counts, is_anndata):
     x_bin = x.reshape(-1,bin_size).copy().mean(axis=1).reshape(x.shape[0],-1)
 
     # train model step 1
-    train_dataset1 = tf.data.Dataset.from_tensor_slices(x_bin)
-    train_dataset1 = train_dataset1.shuffle(buffer_size=1024).batch(batch_size)
-    
-    clus_model = CopyVAE(x_bin.shape[-1],
-                            intermediate_dim,
-                            latent_dim,
-                            max_cp)
-    clus_model.compile(optimizer=Adam(learning_rate=1e-3,epsilon=0.01))
-    clus_model.fit(train_dataset1, epochs=epochs, verbose=0, callbacks=[TqdmCallback()])
+    clus_model = train_neural_network(x_bin,
+                                      max_cp,
+                                      intermediate_dim,
+                                      latent_dim,
+                                      batch_size,
+                                      epochs)
     
     # clustering
+    print('Idetifying normal cells...')
     m,v,z = clus_model.z_encoder(x_bin)
-    pred_label = find_clones_gmm(z, n_clones=2)
-    data.obs["pred"] = pred_label.astype('str')
+    pred_label = find_clones_kmeans(z, n_clones=2)
+    #data.obs["pred"] = pred_label.astype('str')
 
     # find normal cells
-    mask_list = []
-    min_std = np.inf
-    for clus in np.unique(pred_label):
-        mask = (pred_label==clus)
-        mask_list.append(mask)
-        clone_masked = x_bin[mask]
-        ex_std = clone_masked.std(axis=1).sum()
-        if ex_std < min_std:
-            norm_mask = mask
-            min_std = ex_std
-    confident_norm_x = x_bin[norm_mask]
-    """
-    norm_mask = (pred_label).astype(bool)
-    clone_masked = x_bin[norm_mask]
-    clone_unmasked = x_bin[~norm_mask]
-    if clone_masked.std(axis=1).sum() > clone_unmasked.std(axis=1).sum():
-        norm_mask = (1 - pred_label).astype(bool)
-    confident_norm_x = x_bin[norm_mask]
-    """
-    
-    # normalise according to baseline
-    baseline = np.median(confident_norm_x, axis=0) #median --> mean, exclude lower .2
-    baseline[baseline == 0] = 1
-    norm_x = x_bin / baseline * 2
-    #norm_x[x_bin <= 0.2] = x_bin[x_bin <= 0.2]
-    norm_x[norm_mask] = 2.
-    norm_x = tf.convert_to_tensor(norm_x,dtype='float')
+    cluster_auto_corr, ncell_index = find_normal_cluster(x_bin, pred_label)
+    norm_mask = (pred_label == ncell_index)
+    norm_x = compute_pseudo_copy(x_bin, norm_mask)
 
     # train model step 2
-    train_dataset2 = tf.data.Dataset.from_tensor_slices(norm_x)
-    train_dataset2 = train_dataset2.shuffle(buffer_size=1024).batch(batch_size)
-
-    copyvae = CopyVAE(norm_x.shape[-1],
-                            intermediate_dim,
-                            latent_dim,
-                            max_cp)
-    copyvae.compile(optimizer=Adam(learning_rate=1e-3,epsilon=0.01))
-    copyvae.fit(train_dataset2, epochs=epochs, verbose=0, callbacks=[TqdmCallback()])
+    print('Training CopyVAE...')
+    copyvae = train_neural_network(norm_x,
+                                   max_cp,
+                                   intermediate_dim,
+                                   latent_dim,
+                                   batch_size,
+                                   epochs,
+                                   eps=0.02)
 
     # get copy number profile
     _, _, latent_z = copyvae.z_encoder(norm_x)
-    copy_bin = copyvae.encoder(latent_z)
+    copy_bin = copyvae.encoder([norm_x,latent_z])
 
     data.obsm['latent'] = z
     #draw_umap(data, 'latent', '_latent')
@@ -122,26 +207,13 @@ def run_pipeline(umi_counts, is_anndata):
     tum_cp = np.repeat(tum_cp, bin_size)
     
     # generate clone profile
-    chrom_list = np.load('chrom_list.npy')
+    print('Segmantation')
+    #chrom_list = np.load('chrom_list.npy')
     clone_cn = copy_bin[~norm_mask]
-    segment_cn, breakpoints = generate_clone_profile(clone_cn, chrom_list, eta=6)
-    clone_arr = clone_cn.numpy()
-    st = 0
-    for i in range(1,len(breakpoints)):
-        ed = breakpoints[i]
-        m = np.mean(clone_arr[:,st:ed],axis=1)
-        clone_arr[:, st:ed] = np.repeat(
-                                        np.reshape(m,(1, m.size)).T,
-                                        ed-st,
-                                        axis=1)
-        st = ed
-    m = np.mean(clone_arr[:,st:],axis=1)
-    clone_arr[:, st:] = np.repeat(
-                                    np.reshape(m,(1, m.size)).T,
-                                    np.shape(clone_arr)[1]-st,
-                                    axis=1)
+    segment_cn, breakpoints, sc_cn = perform_segmentation(clone_cn, chrom_list, eta=6)
+    
     with open('single_cell_profile.npy', 'wb') as f:
-        np.save(f, clone_arr)
+        np.save(f, sc_cn)
     final_prof = np.repeat(segment_cn, bin_size)
     with open('clone_profile.npy', 'wb') as f:
         np.save(f, final_prof)
@@ -155,12 +227,12 @@ def main():
 
     parser = argparse.ArgumentParser()
     parser.add_argument('input', help="input UMI")
-    parser.add_argument('-a', nargs='?', const=True, default=False, help="flag for 10X data")
+    parser.add_argument('cell_cycle_genes', help="path of list of cell cycle genes")
     parser.add_argument('-g', '--gpu', type=int, help="GPU id")
 
     args = parser.parse_args()
     file = args.input
-    is_10x = args.a
+    cc_genes = args.cell_cycle_genes
 
     if args.gpu:
         dvc = '/device:GPU:{}'.format(args.gpu)
@@ -168,7 +240,7 @@ def main():
         dvc = '/device:GPU:0'
 
     with tf.device(dvc):
-        run_pipeline(file, is_anndata=is_10x)
+        run_pipeline(file, cc_genes)
 
 
 if __name__ == "__main__":
