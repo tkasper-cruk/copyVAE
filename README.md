@@ -14,4 +14,6 @@ The following command will run the copy number profiling pipeline.
     copyvae path/to/UMI_file path/to/cell_cycle_gene_file
 Add flag `-g` for GPU
 
-See [Wiki](https://github.com/Lamicc/copyVAE/wiki) for more details.
+Use `Macosko_cell_cycle_genes.txt` file in `data` folder for cell cycle gene file.
+
+See [Wiki](https://github.com/mandichen/copyVAE/wiki) for more details.
