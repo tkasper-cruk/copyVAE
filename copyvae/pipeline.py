@@ -74,6 +74,33 @@ def compute_pseudo_copy(x_bin, norm_mask):
     return pseudo_cp
 
 
+
+def split_data_by_cluster(data, pred_label, ncell_index):
+    """
+    Split data by unique values in pred_label excluding normal cell index.
+
+    Args:
+        data (np.ndarray): Data array with shape (n_samples, n_features).
+        pred_label (np.ndarray): Cluster labels for each sample.
+        ncell_index (int): Index to exclude from splitting.
+
+    Returns:
+        dict: Dictionary where keys are unique labels and values are corresponding subarrays.
+    """
+    unique_labels = np.unique(pred_label)
+
+    # Exclude ncell_index from unique labels
+    unique_labels = unique_labels[unique_labels != ncell_index]
+
+    split_data = {}
+
+    for label in unique_labels:
+        mask = (pred_label == label)
+        split_data[label] = data[mask]
+
+    return split_data
+
+
 def perform_segmentation(clone_cn, chrom_list, eta):
     """
     Perform segmentation on copy number data.
@@ -134,6 +161,7 @@ def run_pipeline(umi_counts, cell_cycle_gene_list):
     latent_dim = 15 #20
     batch_size = 128
     epochs = 200 #400
+    number_of_clones = 2
 
     # preprocess data
     feature_names=['gene_ids','gene_symbol']
@@ -170,7 +198,7 @@ def run_pipeline(umi_counts, cell_cycle_gene_list):
     # clustering
     print('Idetifying normal cells...')
     m,v,z = clus_model.z_encoder(x_bin)
-    pred_label = find_clones_kmeans(z, n_clones=2)
+    pred_label = find_clones_kmeans(z, n_clones=number_of_clones)
     #data.obs["pred"] = pred_label.astype('str')
 
     # find normal cells
@@ -201,24 +229,23 @@ def run_pipeline(umi_counts, cell_cycle_gene_list):
         np.save(f, copy_bin)
 
     # seperate tumour cells from normal
-    nor_cp = np.median(copy_bin[norm_mask],axis=0)
-    nor_cp = np.repeat(nor_cp, bin_size)
-    tum_cp = np.median(copy_bin[~norm_mask],axis=0)
-    tum_cp = np.repeat(tum_cp, bin_size)
+    cluster_dict = split_data_by_cluster(copy_bin, pred_label, ncell_index)
     
     # generate clone profile
     print('Segmantation')
     #chrom_list = np.load('chrom_list.npy')
-    clone_cn = copy_bin[~norm_mask]
-    segment_cn, breakpoints, sc_cn = perform_segmentation(clone_cn, chrom_list, eta=6)
-    
-    with open('single_cell_profile.npy', 'wb') as f:
-        np.save(f, sc_cn)
-    final_prof = np.repeat(segment_cn, bin_size)
-    with open('clone_profile.npy', 'wb') as f:
-        np.save(f, final_prof)
-    with open('breakpoints.npy', 'wb') as f:
-        np.save(f, breakpoints)
+    for label, cluster_data in cluster_dict.items():
+        segment_cn, breakpoints, sc_cn = perform_segmentation(cluster_data, chrom_list, eta=6)
+        filename = f"clone_{label}_single_cell_profile.npy"
+        with open(filename, 'wb') as f:
+            np.save(f, sc_cn)
+        final_prof = np.repeat(segment_cn, bin_size)
+        filename = f"clone_{label}_profile.npy"
+        with open(filename, 'wb') as f:
+            np.save(f, final_prof)
+        filename = f"clone_{label}_breakpoints.npy"
+        with open(filename, 'wb') as f:
+            np.save(f, breakpoints)
 
     return None
 
