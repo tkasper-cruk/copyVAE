@@ -225,7 +225,7 @@ def run_pipeline(umi_counts, cell_cycle_gene_list, bin_size, max_cp, intermediat
     cluster_dict = split_data_by_cluster(copy_bin, pred_label, ncell_index)
     
     # generate clone profile
-    print('Segmantation')
+    print('Segmentation')
     #chrom_list = np.load('chrom_list.npy')
     for label, cluster_data in cluster_dict.items():
         segment_cn, breakpoints, sc_cn = perform_segmentation(cluster_data, chrom_list, eta=6)
@@ -266,7 +266,7 @@ def main():
     else:
         dvc = '/device:GPU:0'
 
-     if args.bin_size:
+    if args.bin_size:
         bin_size = args.bin_size
     else:
         bin_size = 25
