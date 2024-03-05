@@ -20,8 +20,8 @@ Use `Macosko_cell_cycle_genes.txt` file in `./data` folder for cell cycle gene f
 Add flag `-g` for GPU, ex. `-g 1`
 
 ### Hyperparameters
-`-bin`  Bin size. Default: 25
 
+`-bin`  Bin size. Default: 25
 
 `-mc` Maximum copy number. Default: 15
 
@@ -35,6 +35,9 @@ Add flag `-g` for GPU, ex. `-g 1`
 
 `-nc` Number of clones. Default: 2
 
+ #### Example usage with test data:
+
+`copyvae data/BM2_v0s0_n_200.h5ad data/Macosko_cell_cycle_genes.txt -mc 6`
 
 ## Outputs
 CopyVAE produces the following files in `./output`:
