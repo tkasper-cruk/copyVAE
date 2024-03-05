@@ -140,28 +140,21 @@ def perform_segmentation(clone_cn, chrom_list, eta):
     return segment_cn, breakpoints, cell_cn
 
 
-def run_pipeline(umi_counts, cell_cycle_gene_list):
+def run_pipeline(umi_counts, cell_cycle_gene_list, bin_size, max_cp, intermediate_dim, latent_dim, batch_size, epochs, number_of_clones):
     """ Main pipeline
 
     Args:
         umi_counts: umi file
         cell_cycle_gene_list: cell cycle gene file
-    Params:
-        max_cp: maximum copy number
         bin_size: number of genes per bin
+        max_cp: maximum copy number
         intermediate_dim: number of intermediate dimensions for vae
         latent_dim: number of latent dimensions for vae
         batch_size: batch size for training
         epochs = number of epochs training
+        number_of_clones: number of clones
     """
 
-    bin_size = 25
-    max_cp = 15
-    intermediate_dim = 128
-    latent_dim = 15 #20
-    batch_size = 128
-    epochs = 200 #400
-    number_of_clones = 2
 
     # preprocess data
     feature_names=['gene_ids','gene_symbol']
@@ -225,7 +218,7 @@ def run_pipeline(umi_counts, cell_cycle_gene_list):
     data.obsm['copy_number'] = copy_bin
     #draw_umap(data, 'copy_number', '_copy_number')
     #draw_heatmap(copy_bin,'bin_copies')
-    with open('copy.npy', 'wb') as f:
+    with open('output/copy.npy', 'wb') as f:
         np.save(f, copy_bin)
 
     # seperate tumour cells from normal
@@ -236,14 +229,14 @@ def run_pipeline(umi_counts, cell_cycle_gene_list):
     #chrom_list = np.load('chrom_list.npy')
     for label, cluster_data in cluster_dict.items():
         segment_cn, breakpoints, sc_cn = perform_segmentation(cluster_data, chrom_list, eta=6)
-        filename = f"clone_{label}_single_cell_profile.npy"
+        filename = f"output/clone_{label}_single_cell_profile.npy"
         with open(filename, 'wb') as f:
             np.save(f, sc_cn)
         final_prof = np.repeat(segment_cn, bin_size)
-        filename = f"clone_{label}_profile.npy"
+        filename = f"output/clone_{label}_profile.npy"
         with open(filename, 'wb') as f:
             np.save(f, final_prof)
-        filename = f"clone_{label}_breakpoints.npy"
+        filename = f"output/clone_{label}_breakpoints.npy"
         with open(filename, 'wb') as f:
             np.save(f, breakpoints)
 
@@ -256,6 +249,13 @@ def main():
     parser.add_argument('input', help="input UMI")
     parser.add_argument('cell_cycle_genes', help="path of list of cell cycle genes")
     parser.add_argument('-g', '--gpu', type=int, help="GPU id")
+    parser.add_argument('-bin', '--bin_size', type=int, help="bin size")
+    parser.add_argument('-mc', '--max_cp', type=int, help="maximum copy number")
+    parser.add_argument('-intd', '--intermediate_dim', type=int, help="intermediate dimension")
+    parser.add_argument('-l', '--latent_dim', type=int, help="latent dim")
+    parser.add_argument('-bs', '--batch_size', type=int, help="batch size")
+    parser.add_argument('-ep', '--epochs', type=int, help="number of epochs")
+    parser.add_argument('-nc', '--number_of_clones', type=int, help="number_of_clones")
 
     args = parser.parse_args()
     file = args.input
@@ -266,8 +266,43 @@ def main():
     else:
         dvc = '/device:GPU:0'
 
+     if args.bin_size:
+        bin_size = args.bin_size
+    else:
+        bin_size = 25
+
+    if args.max_cp:
+        max_cp = args.max_cp
+    else:
+        max_cp = 15
+
+    if args.intermediate_dim:
+        intermediate_dim = args.intermediate_dim
+    else:
+        intermediate_dim = 128
+
+    if args.latent_dim:
+        latent_dim = args.latent_dim
+    else:
+        latent_dim = 15
+
+    if args.batch_size:
+        batch_size = args.batch_size
+    else:
+        batch_size = 128
+
+    if args.epochs:
+        epochs = args.epochs
+    else:
+        epochs = 200
+
+    if args.number_of_clones:
+        number_of_clones = args.number_of_clones
+    else:
+        number_of_clones = 2
+
     with tf.device(dvc):
-        run_pipeline(file, cc_genes)
+        run_pipeline(file, cc_genes, bin_size, max_cp, intermediate_dim, latent_dim, batch_size, epochs, number_of_clones)
 
 
 if __name__ == "__main__":
