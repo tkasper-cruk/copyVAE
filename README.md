@@ -53,4 +53,4 @@ CopyVAE produces the following files in `./output`:
 
 `clone_#_profile.npy`  clone #'s copy number profile.
 
-See [Wiki](https://github.com/mandichen/copyVAE/wiki) for more details.
+See [Wiki](https://github.com/kurtsemih/copyVAE/wiki) for more details.
