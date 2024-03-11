@@ -1,4 +1,5 @@
 # copyVAE
+A variational autoencoder-based approach for copy number variation inference using single-cell transcriptomics.
 
 ## Installation
 
