@@ -2,3 +2,9 @@
 .DS_Store
 *.png
 *.jpeg
+
+._.DS_Store
+.pybiomart.sqlite
+/.vscode/
+data/
+
