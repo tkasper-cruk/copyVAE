@@ -4,6 +4,7 @@ scipy
 anndata
 scanpy
 tensorflow-probability
+tensorflow
 pybiomart
 matplotlib
 seaborn

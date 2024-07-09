@@ -129,9 +129,9 @@ def bin_genes_from_anndata(adata, bin_size, gene_map):
     sc.pp.filter_genes(adata, min_cells=1)
 
     # Map chromosome and absolute position information
-    map_chr = dict(gene_map[['Gene name', 'chr']].values)
+    map_chr = dict(gene_map[['Gene stable ID', 'chr']].values)
     adata.var['chr'] = adata.var.gene_ids.map(map_chr)
-    map_abs = dict(gene_map[['Gene name', 'abspos']].values)
+    map_abs = dict(gene_map[['Gene stable ID', 'abspos']].values)
     adata.var['abspos'] = adata.var.gene_ids.map(map_abs)
 
     # Filter out genes with missing chromosome or absolute position
@@ -152,8 +152,16 @@ def bin_genes_from_anndata(adata, bin_size, gene_map):
             by=['n_cells', 'abspos'])[:n].index.values
         ind_list.append(ind)
 
+    if ind_list:
+        exceeded_genes = np.concatenate(ind_list)
+        data = adata_clean[:, ~adata_clean.var.index.isin(exceeded_genes)].copy()
+        print("Removed exceeded genes.")
+    else:
+        data = adata_clean.copy()
+        print("No genes exceeded the bin size. No genes removed.")
+
     # Remove exceeded genes
-    data = adata_clean[:, ~adata_clean.var.index.isin(np.concatenate(ind_list))].copy()
+    #data = adata_clean[:, ~adata_clean.var.index.isin(np.concatenate(ind_list))].copy()
 
     # Find chromosome boundary bins
     bin_number = adata_clean.var['chr'].value_counts() // bin_size

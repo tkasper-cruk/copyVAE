@@ -33,9 +33,13 @@ def nb_pos(y_true, y_pred, eps=1e-8):
     Returns:
         loss (log likelihood scalar)
     """
-    x = y_true
-    mu = y_pred[0]
-    theta = y_pred[1]
+    # x = y_true
+    # mu = y_pred[0]
+    # theta = y_pred[1]
+
+    x = tf.cast(y_true, tf.float32)
+    mu = tf.cast(y_pred[0], tf.float32)
+    theta = tf.cast(y_pred[1], tf.float32)
 
     arg_validated = validate_params(mu, theta)
     if not arg_validated:

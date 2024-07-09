@@ -58,6 +58,9 @@ def auto_corr(cluster_data):
 
     for i in range(n_samples):
         for j in range(i, n_samples):
+            #cluster_data_i = np.asarray(cluster_data[i, :]).flatten()
+            #cluster_data_j = np.asarray(cluster_data[j, :]).flatten()
+            #res += np.sum(cluster_data_i * cluster_data_j)
             res += np.sum(cluster_data[i,:] * cluster_data[j,:])
             count += 1
     res = res / count
@@ -85,9 +88,11 @@ def find_normal_cluster(x_bin, pred_label, n_clusters=2):
     for i in range(n_clusters):
         cluster_mean = x_bin[pred_label == i, :].mean(axis=0)
         cluster_x = x_bin[pred_label == i, :]
+        print("Cluster ", i , " has ", cluster_x.shape[0], "cells")
 
         cluster_auto_corr[i] = auto_corr(cluster_x - cluster_mean)
 
     normal_index = np.argmax(cluster_auto_corr)
+    print("Identified normal cell cluster has index ", normal_index)
 
     return cluster_auto_corr, normal_index

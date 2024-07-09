@@ -6,15 +6,26 @@ import tensorflow as tf
 import anndata
 from tensorflow.keras.optimizers import Adam
 from tqdm.keras import TqdmCallback
+import random
 
 from copyvae.preprocess import filter_and_normalize_data
 from copyvae.binning import build_gene_map, bin_genes_from_anndata
 from copyvae.vae import CopyVAE
 from copyvae.clustering import find_clones_kmeans, find_normal_cluster
 from copyvae.segmentation import generate_clone_profile
-#from copyvae.graphics import draw_umap, draw_heatmap, plot_breakpoints
 
-def train_neural_network(data, max_cp, intermediate_dim, latent_dim, batch_size, epochs, lr=1e-3, eps=0.01):
+# from copyvae.graphics import draw_umap, draw_heatmap, plot_breakpoints
+
+#Set seeds for reproducability
+np.random.seed(42)
+random.seed(42)
+tf.random.set_seed(42)
+
+
+
+def train_neural_network(
+    data, max_cp, intermediate_dim, latent_dim, batch_size, epochs, lr=1e-3, eps=0.01
+):
     """
     Train a neural network on the provided data.
 
@@ -30,7 +41,7 @@ def train_neural_network(data, max_cp, intermediate_dim, latent_dim, batch_size,
     Returns:
         tf.keras.models.Model: Trained neural network.
     """
-    
+
     # Create a TensorFlow dataset
     train_dataset = tf.data.Dataset.from_tensor_slices(data)
     train_dataset = train_dataset.shuffle(buffer_size=1024).batch(batch_size)
@@ -65,14 +76,13 @@ def compute_pseudo_copy(x_bin, norm_mask):
     baseline = np.median(confident_norm_x, axis=0)
     baseline[baseline == 0] = 1
     pseudo_cp = x_bin / baseline * 2
-    #pseudo_cp[x_bin <= 0.2] = x_bin[x_bin <= 0.2]
-    pseudo_cp[norm_mask] = 2.
+    # pseudo_cp[x_bin <= 0.2] = x_bin[x_bin <= 0.2]
+    pseudo_cp[norm_mask] = 2.0
 
     # Convert to TensorFlow tensor
-    pseudo_cp = tf.convert_to_tensor(pseudo_cp, dtype='float')
+    pseudo_cp = tf.convert_to_tensor(pseudo_cp, dtype="float")
 
     return pseudo_cp
-
 
 
 def split_data_by_cluster(data, pred_label, ncell_index):
@@ -95,7 +105,7 @@ def split_data_by_cluster(data, pred_label, ncell_index):
     split_data = {}
 
     for label in unique_labels:
-        mask = (pred_label == label)
+        mask = pred_label == label
         split_data[label] = data[mask]
 
     return split_data
@@ -118,30 +128,44 @@ def perform_segmentation(clone_cn, chrom_list, eta):
 
     # Generate clone profile and breakpoints
     segment_cn, breakpoints = generate_clone_profile(clone_cn, chrom_list, eta)
-    
+
     # Generate single cell copy profile
     cell_cn = clone_cn.numpy()
     st = 0
     for i in range(1, len(breakpoints)):
         ed = breakpoints[i]
         m = np.mean(cell_cn[:, st:ed], axis=1)
-        cell_cn[:, st:ed] = np.repeat(
-                                        np.reshape(m, (1, m.size)).T,
-                                        ed - st,
-                                        axis=1)
+        cell_cn[:, st:ed] = np.repeat(np.reshape(m, (1, m.size)).T, ed - st, axis=1)
         st = ed
 
     m = np.mean(cell_cn[:, st:], axis=1)
     cell_cn[:, st:] = np.repeat(
-                                    np.reshape(m, (1, m.size)).T,
-                                    np.shape(cell_cn)[1] - st,
-                                    axis=1)
+        np.reshape(m, (1, m.size)).T, np.shape(cell_cn)[1] - st, axis=1
+    )
 
     return segment_cn, breakpoints, cell_cn
 
 
-def run_pipeline(umi_counts, cell_cycle_gene_list, bin_size, max_cp, intermediate_dim, latent_dim, batch_size, epochs, number_of_clones):
-    """ Main pipeline
+def ensure_dense(adata):
+    if sc.utils.sparse.issparse(adata.X):
+        adata.X = adata.X.toarray()  # Convert sparse matrix to dense array
+    elif isinstance(adata.X, np.matrix):
+        adata.X = np.asarray(adata.X)  # Convert numpy matrix to numpy array
+    return adata
+
+def run_pipeline(
+    umi_counts,
+    output,
+    cell_cycle_gene_list,
+    bin_size,
+    max_cp,
+    intermediate_dim,
+    latent_dim,
+    batch_size,
+    epochs,
+    number_of_clones,
+):
+    """Main pipeline
 
     Args:
         umi_counts: umi file
@@ -155,89 +179,101 @@ def run_pipeline(umi_counts, cell_cycle_gene_list, bin_size, max_cp, intermediat
         number_of_clones: number of clones
     """
 
-
     # preprocess data
-    feature_names=['gene_ids','gene_symbol']
-    adata = filter_and_normalize_data(umi_counts,
-                                      cell_cycle_gene_list,
-                                      alternative_feature_names=feature_names)
-    server_url = 'http://www.ensembl.org'
-    attributes = ['external_gene_name',
-                  'ensembl_gene_id',
-                  'chromosome_name',
-                  'start_position',
-                  'end_position']
+    feature_names = ["gene_ids", "gene_symbol"]
+    adata = filter_and_normalize_data(
+        umi_counts, cell_cycle_gene_list, alternative_feature_names=feature_names
+    )
+    adata.write(output + '/copyvae_filtered_data.h5ad')
+    print("Written intermediate filtered adata to file")
+    print("Filtered and normalised data")
+    server_url = "http://www.ensembl.org"
+    attributes = [
+        "external_gene_name",
+        "ensembl_gene_id",
+        "chromosome_name",
+        "start_position",
+        "end_position",
+    ]
     gene_map = build_gene_map(server_url, attributes)
-    data, chrom_list = bin_genes_from_anndata(adata, bin_size, gene_map)
-    with open('chrom_list.npy', 'wb') as f:
-        np.save(f, chrom_list)
-    print('finished preprocess')
+    if len(gene_map) == 0:
+        print("Error: Gene map is empty.")
+    else:
+        print("Gene map successfully built")
 
+    data, chrom_list = bin_genes_from_anndata(adata, bin_size, gene_map)
+
+    filename = f"{output}/chrom_list.npy"
+    with open(filename, "wb") as f:
+        np.save(f, chrom_list)
+    print("finished preprocess")
+
+    
     # train cluster NNs
-    try: 
+    try:
         x = data.X.todense()
     except AttributeError:
         x = data.X
-    x_bin = x.reshape(-1,bin_size).copy().mean(axis=1).reshape(x.shape[0],-1)
+
+    if(isinstance(x, np.matrix)):
+        x = np.asarray(x)
+        
+    x_bin = x.reshape(-1, bin_size).copy().mean(axis=1).reshape(x.shape[0], -1)
 
     # train model step 1
-    clus_model = train_neural_network(x_bin,
-                                      max_cp,
-                                      intermediate_dim,
-                                      latent_dim,
-                                      batch_size,
-                                      epochs)
-    
+    clus_model = train_neural_network(
+        x_bin, max_cp, intermediate_dim, latent_dim, batch_size, epochs
+    )
+
     # clustering
-    print('Idetifying normal cells...')
-    m,v,z = clus_model.z_encoder(x_bin)
+    print("Identifying normal cells...")
+    m, v, z = clus_model.z_encoder(x_bin)
     pred_label = find_clones_kmeans(z, n_clones=number_of_clones)
-    #data.obs["pred"] = pred_label.astype('str')
+    # data.obs["pred"] = pred_label.astype('str')
 
     # find normal cells
     cluster_auto_corr, ncell_index = find_normal_cluster(x_bin, pred_label)
-    norm_mask = (pred_label == ncell_index)
+    norm_mask = pred_label == ncell_index
     norm_x = compute_pseudo_copy(x_bin, norm_mask)
 
     # train model step 2
-    print('Training CopyVAE...')
-    copyvae = train_neural_network(norm_x,
-                                   max_cp,
-                                   intermediate_dim,
-                                   latent_dim,
-                                   batch_size,
-                                   epochs,
-                                   eps=0.02)
+    print("Training CopyVAE...")
+    copyvae = train_neural_network(
+        norm_x, max_cp, intermediate_dim, latent_dim, batch_size, epochs, eps=0.02
+    )
 
     # get copy number profile
     _, _, latent_z = copyvae.z_encoder(norm_x)
-    copy_bin = copyvae.encoder([norm_x,latent_z])
+    copy_bin = copyvae.encoder([norm_x, latent_z])
 
-    data.obsm['latent'] = z
-    #draw_umap(data, 'latent', '_latent')
-    data.obsm['copy_number'] = copy_bin
-    #draw_umap(data, 'copy_number', '_copy_number')
-    #draw_heatmap(copy_bin,'bin_copies')
-    with open('output/copy.npy', 'wb') as f:
+    data.obsm["latent"] = z
+    # draw_umap(data, 'latent', '_latent')
+    data.obsm["copy_number"] = copy_bin
+    # draw_umap(data, 'copy_number', '_copy_number')
+    # draw_heatmap(copy_bin,'bin_copies')
+    filename = f"{output}/copy.npy"
+    with open(filename, "wb") as f:
         np.save(f, copy_bin)
 
     # seperate tumour cells from normal
     cluster_dict = split_data_by_cluster(copy_bin, pred_label, ncell_index)
-    
+
     # generate clone profile
-    print('Segmentation')
-    #chrom_list = np.load('chrom_list.npy')
+    print("Segmentation")
+    # chrom_list = np.load('chrom_list.npy')
     for label, cluster_data in cluster_dict.items():
-        segment_cn, breakpoints, sc_cn = perform_segmentation(cluster_data, chrom_list, eta=6)
-        filename = f"output/clone_{label}_single_cell_profile.npy"
-        with open(filename, 'wb') as f:
+        segment_cn, breakpoints, sc_cn = perform_segmentation(
+            cluster_data, chrom_list, eta=6
+        )
+        filename = f"{output}/clone_{label}_single_cell_profile.npy"
+        with open(filename, "wb") as f:
             np.save(f, sc_cn)
         final_prof = np.repeat(segment_cn, bin_size)
-        filename = f"output/clone_{label}_profile.npy"
-        with open(filename, 'wb') as f:
+        filename = f"{output}/clone_{label}_profile.npy"
+        with open(filename, "wb") as f:
             np.save(f, final_prof)
-        filename = f"output/clone_{label}_breakpoints.npy"
-        with open(filename, 'wb') as f:
+        filename = f"{output}/clone_{label}_breakpoints.npy"
+        with open(filename, "wb") as f:
             np.save(f, breakpoints)
 
     return None
@@ -246,25 +282,29 @@ def run_pipeline(umi_counts, cell_cycle_gene_list, bin_size, max_cp, intermediat
 def main():
 
     parser = argparse.ArgumentParser()
-    parser.add_argument('input', help="input UMI")
-    parser.add_argument('cell_cycle_genes', help="path of list of cell cycle genes")
-    parser.add_argument('-g', '--gpu', type=int, help="GPU id")
-    parser.add_argument('-bin', '--bin_size', type=int, help="bin size")
-    parser.add_argument('-mc', '--max_cp', type=int, help="maximum copy number")
-    parser.add_argument('-intd', '--intermediate_dim', type=int, help="intermediate dimension")
-    parser.add_argument('-l', '--latent_dim', type=int, help="latent dim")
-    parser.add_argument('-bs', '--batch_size', type=int, help="batch size")
-    parser.add_argument('-ep', '--epochs', type=int, help="number of epochs")
-    parser.add_argument('-nc', '--number_of_clones', type=int, help="number_of_clones")
+    parser.add_argument("input", help="input UMI")
+    parser.add_argument("cell_cycle_genes", help="path of list of cell cycle genes")
+    parser.add_argument("-g", "--gpu", type=int, help="GPU id")
+    parser.add_argument("-bin", "--bin_size", type=int, help="bin size")
+    parser.add_argument("-mc", "--max_cp", type=int, help="maximum copy number")
+    parser.add_argument(
+        "-intd", "--intermediate_dim", type=int, help="intermediate dimension"
+    )
+    parser.add_argument("-l", "--latent_dim", type=int, help="latent dim")
+    parser.add_argument("-bs", "--batch_size", type=int, help="batch size")
+    parser.add_argument("-ep", "--epochs", type=int, help="number of epochs")
+    parser.add_argument("-nc", "--number_of_clones", type=int, help="number_of_clones")
+    parser.add_argument("-o", "--output_path", help="output path prefix")
 
     args = parser.parse_args()
     file = args.input
+    output = args.output_path
     cc_genes = args.cell_cycle_genes
 
     if args.gpu:
-        dvc = '/device:GPU:{}'.format(args.gpu)
+        dvc = "/device:GPU:{}".format(args.gpu)
     else:
-        dvc = '/device:GPU:0'
+        dvc = "/device:GPU:0"
 
     if args.bin_size:
         bin_size = args.bin_size
@@ -302,7 +342,18 @@ def main():
         number_of_clones = 2
 
     with tf.device(dvc):
-        run_pipeline(file, cc_genes, bin_size, max_cp, intermediate_dim, latent_dim, batch_size, epochs, number_of_clones)
+        run_pipeline(
+            file,
+            output,
+            cc_genes,
+            bin_size,
+            max_cp,
+            intermediate_dim,
+            latent_dim,
+            batch_size,
+            epochs,
+            number_of_clones,
+        )
 
 
 if __name__ == "__main__":

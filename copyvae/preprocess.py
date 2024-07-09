@@ -46,8 +46,11 @@ def filter_and_normalize_data(file_path: Path, cy_file_path: Path, normalize=Tru
     
     # Load the AnnData object from the .h5ad file
     adata = anndata.read_h5ad(file_path)
+    print(adata.obs_names)
 
     # Check if the 'gene_name' feature exists in the file
+    if 'ensembl_gene_id' in adata.var:
+        adata.var['gene_ids'] = adata.var['ensembl_gene_id']
     if 'gene_name' in adata.var:
         adata.var['gene_ids'] = adata.var['gene_name']
     elif alternative_feature_names:
