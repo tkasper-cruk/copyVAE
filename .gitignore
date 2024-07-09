@@ -5,6 +5,7 @@
 
 ._.DS_Store
 .pybiomart.sqlite
-/.vscode/
+.vscode/
 data/
-
+__pycache__/
+copyVAE.egg-info/
