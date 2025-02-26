@@ -246,9 +246,9 @@ def run_pipeline(
     _, _, latent_z = copyvae.z_encoder(norm_x)
     copy_bin = copyvae.encoder([norm_x, latent_z])
 
-    data.obsm["latent"] = z
+    data.obsm["latent"] = z.numpy()
     # draw_umap(data, 'latent', '_latent')
-    data.obsm["copy_number"] = copy_bin
+    data.obsm["copy_number"] = copy_bin.numpy()
     # draw_umap(data, 'copy_number', '_copy_number')
     # draw_heatmap(copy_bin,'bin_copies')
     filename = f"{output}/copy.npy"
