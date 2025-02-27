@@ -11,7 +11,7 @@ import random
 from copyvae.preprocess import filter_and_normalize_data
 from copyvae.binning import build_gene_map, bin_genes_from_anndata
 from copyvae.vae import CopyVAE
-from copyvae.clustering import find_clones_kmeans, find_normal_cluster
+from copyvae.clustering import find_clones_dbscan, find_normal_cluster
 from copyvae.segmentation import generate_clone_profile
 
 # from copyvae.graphics import draw_umap, draw_heatmap, plot_breakpoints
@@ -203,6 +203,8 @@ def run_pipeline(
 
     data, chrom_list = bin_genes_from_anndata(adata, bin_size, gene_map)
 
+    data.write_h5ad(f"{output}/filtered.h5ad")
+
     filename = f"{output}/chrom_list.npy"
     with open(filename, "wb") as f:
         np.save(f, chrom_list)
@@ -228,7 +230,7 @@ def run_pipeline(
     # clustering
     print("Identifying normal cells...")
     m, v, z = clus_model.z_encoder(x_bin)
-    pred_label = find_clones_kmeans(z, n_clones=number_of_clones)
+    pred_label = find_clones_dbscan(z)
     # data.obs["pred"] = pred_label.astype('str')
 
     # find normal cells
