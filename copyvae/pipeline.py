@@ -163,7 +163,7 @@ def run_pipeline(
     latent_dim,
     batch_size,
     epochs,
-    number_of_clones,
+    clustering_arg,
 ):
     """Main pipeline
 
@@ -176,7 +176,7 @@ def run_pipeline(
         latent_dim: number of latent dimensions for vae
         batch_size: batch size for training
         epochs = number of epochs training
-        number_of_clones: number of clones
+        clustering arg: number of clones for kmeans/ min size for nonparametric
     """
 
     # preprocess data
@@ -230,7 +230,7 @@ def run_pipeline(
     # clustering
     print("Identifying normal cells...")
     m, v, z = clus_model.z_encoder(x_bin)
-    pred_label = find_clones_dbscan(z)
+    pred_label = find_clones_dbscan(z,min_members=clustering_arg)
     # data.obs["pred"] = pred_label.astype('str')
 
     # find normal cells
@@ -295,7 +295,7 @@ def main():
     parser.add_argument("-l", "--latent_dim", type=int, help="latent dim")
     parser.add_argument("-bs", "--batch_size", type=int, help="batch size")
     parser.add_argument("-ep", "--epochs", type=int, help="number of epochs")
-    parser.add_argument("-nc", "--number_of_clones", type=int, help="number_of_clones")
+    parser.add_argument("-nc", "--clustering arg", type=int, help="cluster min size for nonparametric or number of clones for kmeanss")
     parser.add_argument("-o", "--output_path", help="output path prefix")
 
     args = parser.parse_args()
