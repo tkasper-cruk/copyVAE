@@ -33,10 +33,10 @@ def find_clones_kmeans(data, n_clones=2):
     return prediction
 
 
-def find_clones_dbscan(data, min_members=1):
+def find_clones_dbscan(data, epsilon:float,min_members:int=1):
     """ DBSCAN clustering """
 
-    clustering = DBSCAN(min_samples=min_members).fit(data)
+    clustering = DBSCAN(min_samples=min_members,eps=epsilon).fit(data)
     prediction = clustering.labels_
 
     return prediction
@@ -53,6 +53,12 @@ def auto_corr(cluster_data):
     """
 
     n_samples = cluster_data.shape[0]
+    if n_samples < 1:
+        print("Cluster without samples")
+        return 0
+    if cluster_data.shape[1] < 1:
+        print("Cluster with 0 features")
+        return 0
     res = 0
     count = 0
 

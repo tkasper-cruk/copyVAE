@@ -11,7 +11,7 @@ import random
 from copyvae.preprocess import filter_and_normalize_data
 from copyvae.binning import build_gene_map, bin_genes_from_anndata
 from copyvae.vae import CopyVAE
-from copyvae.clustering import find_clones_dbscan, find_normal_cluster
+from copyvae.clustering import find_clones_dbscan, find_normal_cluster, find_clones_kmeans, find_clones_gmm
 from copyvae.segmentation import generate_clone_profile
 
 # from copyvae.graphics import draw_umap, draw_heatmap, plot_breakpoints
@@ -164,6 +164,7 @@ def run_pipeline(
     batch_size,
     epochs,
     clustering_arg,
+    cluster_size
 ):
     """Main pipeline
 
@@ -230,9 +231,8 @@ def run_pipeline(
     # clustering
     print("Identifying normal cells...")
     m, v, z = clus_model.z_encoder(x_bin)
-    pred_label = find_clones_dbscan(z,min_members=clustering_arg)
+    pred_label = find_clones_dbscan(z,clustering_arg,min_members=cluster_size)
     # data.obs["pred"] = pred_label.astype('str')
-
     # find normal cells
     cluster_auto_corr, ncell_index = find_normal_cluster(x_bin, pred_label)
     norm_mask = pred_label == ncell_index
@@ -287,15 +287,14 @@ def main():
     parser.add_argument("input", help="input UMI")
     parser.add_argument("cell_cycle_genes", help="path of list of cell cycle genes")
     parser.add_argument("-g", "--gpu", type=int, help="GPU id")
-    parser.add_argument("-bin", "--bin_size", type=int, help="bin size")
-    parser.add_argument("-mc", "--max_cp", type=int, help="maximum copy number")
-    parser.add_argument(
-        "-intd", "--intermediate_dim", type=int, help="intermediate dimension"
-    )
-    parser.add_argument("-l", "--latent_dim", type=int, help="latent dim")
-    parser.add_argument("-bs", "--batch_size", type=int, help="batch size")
-    parser.add_argument("-ep", "--epochs", type=int, help="number of epochs")
-    parser.add_argument("-nc", "--clustering arg", type=int, help="cluster min size for nonparametric or number of clones for kmeanss")
+    parser.add_argument("-bin", "--bin_size", type=int,required=False,default=25, help="bin size")
+    parser.add_argument("-mc", "--max_cp", type=int,required=False,default=15, help="maximum copy number")
+    parser.add_argument("-intd", "--intermediate_dim", type=int, required=False, default=128, help="intermediate dimension")
+    parser.add_argument("-l", "--latent_dim", type=int, required=False, default=15, help="latent dim")
+    parser.add_argument("-bs", "--batch_size", type=int, required=False, default= 128, help="batch size")
+    parser.add_argument("-ep", "--epochs", type=int,required=False,default=200, help="number of epochs")
+    parser.add_argument("-eps", "--clustering_arg", type=float,required=False,default=3.0, help="cluster min size for nonparametric or number of clones for kmeans")
+    parser.add_argument("-cs","--cluster_size",type=int,required=False,default=5,help="Minimal cluster size")
     parser.add_argument("-o", "--output_path", help="output path prefix")
 
     args = parser.parse_args()
@@ -308,53 +307,19 @@ def main():
     else:
         dvc = "/device:GPU:0"
 
-    if args.bin_size:
-        bin_size = args.bin_size
-    else:
-        bin_size = 25
-
-    if args.max_cp:
-        max_cp = args.max_cp
-    else:
-        max_cp = 15
-
-    if args.intermediate_dim:
-        intermediate_dim = args.intermediate_dim
-    else:
-        intermediate_dim = 128
-
-    if args.latent_dim:
-        latent_dim = args.latent_dim
-    else:
-        latent_dim = 15
-
-    if args.batch_size:
-        batch_size = args.batch_size
-    else:
-        batch_size = 128
-
-    if args.epochs:
-        epochs = args.epochs
-    else:
-        epochs = 200
-
-    if args.number_of_clones:
-        number_of_clones = args.number_of_clones
-    else:
-        number_of_clones = 2
-
     with tf.device(dvc):
         run_pipeline(
             file,
             output,
             cc_genes,
-            bin_size,
-            max_cp,
-            intermediate_dim,
-            latent_dim,
-            batch_size,
-            epochs,
-            number_of_clones,
+            args.bin_size,
+            args.max_cp,
+            args.intermediate_dim,
+            args.latent_dim,
+            args.batch_size,
+            args.epochs,
+            args.clustering_arg,
+            args.cluster_size
         )
 
 
